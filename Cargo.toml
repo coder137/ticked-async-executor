@@ -1,0 +1,10 @@
+[package]
+name = "ticked_async_executor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-task = "4.7"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
