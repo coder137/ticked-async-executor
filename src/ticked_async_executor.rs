@@ -6,8 +6,6 @@ use std::{
     },
 };
 
-use async_task::{Runnable, Task};
-
 use crate::{DroppableFuture, TaskIdentifier};
 
 #[derive(Debug)]
@@ -18,7 +16,8 @@ pub enum TaskState {
     Drop(TaskIdentifier),
 }
 
-type Payload = (TaskIdentifier, Runnable);
+pub type Task<T> = async_task::Task<T>;
+type Payload = (TaskIdentifier, async_task::Runnable);
 
 pub struct TickedAsyncExecutor<O> {
     channel: (mpsc::Sender<Payload>, mpsc::Receiver<Payload>),
@@ -127,7 +126,7 @@ where
         })
     }
 
-    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(Runnable) {
+    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
         let sender = self.channel.0.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();
