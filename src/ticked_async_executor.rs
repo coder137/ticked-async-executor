@@ -24,7 +24,17 @@ pub struct TickedAsyncExecutor<O> {
     channel: (mpsc::Sender<Payload>, mpsc::Receiver<Payload>),
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
+
+    // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
+    // Broadcast recv channel should be notified when there are new messages in the queue
+    // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
+}
+
+impl Default for TickedAsyncExecutor<fn(TaskState)> {
+    fn default() -> Self {
+        Self::new(|_| {})
+    }
 }
 
 impl<O> TickedAsyncExecutor<O>
@@ -77,6 +87,8 @@ where
     }
 
     /// Run the woken tasks once
+    ///
+    /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
     pub fn tick(&self) {
@@ -135,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_multiple_tasks() {
-        let executor = TickedAsyncExecutor::new(|_state| {});
+        let executor = TickedAsyncExecutor::default();
         executor
             .spawn_local("A", async move {
                 tokio::task::yield_now().await;
