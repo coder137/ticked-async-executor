@@ -22,6 +22,8 @@ impl Default for TickedAsyncExecutor {
     }
 }
 
+// TODO, Observer: Task spawn/wake/drop events
+// TODO, Task Identifier String
 impl TickedAsyncExecutor {
     pub fn new() -> Self {
         Self {
@@ -51,6 +53,10 @@ impl TickedAsyncExecutor {
         let (runnable, task) = async_task::spawn_local(future, schedule);
         runnable.schedule();
         task
+    }
+
+    pub fn num_tasks(&self) -> usize {
+        self.num_spawned_tasks.load(Ordering::Relaxed)
     }
 
     /// Run the woken tasks once
@@ -113,22 +119,47 @@ mod tests {
             })
             .detach();
 
-        executor
-            .spawn_local(async move {
-                println!("C: Start");
-                tokio::task::yield_now().await;
-                println!("C: End");
-            })
-            .detach();
-
         // A, B, C: Start
         executor.tick();
+        assert_eq!(executor.num_tasks(), 2);
 
         // A, B, C: End
         executor.tick();
+        assert_eq!(executor.num_tasks(), 0);
     }
 
-    // TODO, Test Task cancellation
-    // TODO, Test FallibleTasks
-    // TODO, Test Edge cases
+    #[test]
+    fn test_task_cancellation() {
+        let executor = TickedAsyncExecutor::new();
+        let task1 = executor.spawn_local(async move {
+            loop {
+                println!("A: Start");
+                tokio::task::yield_now().await;
+                println!("A: End");
+            }
+        });
+
+        let task2 = executor.spawn_local(async move {
+            loop {
+                println!("B: Start");
+                tokio::task::yield_now().await;
+                println!("B: End");
+            }
+        });
+        assert_eq!(executor.num_tasks(), 2);
+        executor.tick();
+
+        executor
+            .spawn_local(async move {
+                task1.cancel().await;
+                task2.cancel().await;
+            })
+            .detach();
+        assert_eq!(executor.num_tasks(), 3);
+
+        // Since we have cancelled the tasks above, the loops should eventually end
+        while executor.num_tasks() != 0 {
+            executor.tick();
+        }
+    }
 }
