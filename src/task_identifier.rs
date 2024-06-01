@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 /// Cheaply clonable TaskIdentifier
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum TaskIdentifier {
     Literal(&'static str),
     Arc(Arc<String>),
