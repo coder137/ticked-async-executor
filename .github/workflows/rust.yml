@@ -1,0 +1,47 @@
+name: Rust CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+        fail-fast: false
+        matrix:
+            os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          cargo install cargo-tarpaulin
+
+      - name: Test
+        run: |
+          cargo clippy
+          cargo test
+    
+      - name: Build
+        run: |
+          cargo build
+          cargo build --release
+      
+      - name: Generate Coverage Report
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          cargo tarpaulin --engine llvm --out xml --output-dir target
+
+      - name: Upload coverage reports to Codecov
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: codecov/codecov-action@v4.0.1
+        with:
+            token: ${{ secrets.CODECOV_TOKEN }}
+            files: target/cobertura.xml
