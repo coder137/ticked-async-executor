@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskIdentifier};
+use crate::TaskIdentifier;
 
 #[derive(Debug)]
 pub enum TaskState {
@@ -16,11 +16,37 @@ pub enum TaskState {
     Drop(TaskIdentifier),
 }
 
-pub type Task<T> = async_task::Task<T>;
-type Payload = (TaskIdentifier, async_task::Runnable);
+pub type Task<T, O> = async_task::Task<T, TaskMetadata<O>>;
+type TaskRunnable<O> = async_task::Runnable<TaskMetadata<O>>;
+type Payload<O> = (TaskIdentifier, TaskRunnable<O>);
 
-pub struct TickedAsyncExecutor<O> {
-    channel: (mpsc::Sender<Payload>, mpsc::Receiver<Payload>),
+/// Task Metadata associated with TickedAsyncExecutor
+///
+/// Primarily used to track when the Task is completed/cancelled
+pub struct TaskMetadata<O>
+where
+    O: Fn(TaskState) + Send + Sync + 'static,
+{
+    num_spawned_tasks: Arc<AtomicUsize>,
+    identifier: TaskIdentifier,
+    observer: O,
+}
+
+impl<O> Drop for TaskMetadata<O>
+where
+    O: Fn(TaskState) + Send + Sync + 'static,
+{
+    fn drop(&mut self) {
+        self.num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
+        (self.observer)(TaskState::Drop(self.identifier.clone()));
+    }
+}
+
+pub struct TickedAsyncExecutor<O>
+where
+    O: Fn(TaskState) + Send + Sync + 'static,
+{
+    channel: (mpsc::Sender<Payload<O>>, mpsc::Receiver<Payload<O>>),
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
 
@@ -53,14 +79,22 @@ where
         &self,
         identifier: impl Into<TaskIdentifier>,
         future: impl Future<Output = T> + Send + 'static,
-    ) -> Task<T>
+    ) -> Task<T, O>
     where
         T: Send + 'static,
     {
         let identifier = identifier.into();
-        let future = self.droppable_future(identifier.clone(), future);
-        let schedule = self.runnable_schedule_cb(identifier);
-        let (runnable, task) = async_task::spawn(future, schedule);
+        self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
+        (self.observer)(TaskState::Spawn(identifier.clone()));
+
+        let schedule = self.runnable_schedule_cb(identifier.clone());
+        let (runnable, task) = async_task::Builder::new()
+            .metadata(TaskMetadata {
+                num_spawned_tasks: self.num_spawned_tasks.clone(),
+                identifier,
+                observer: self.observer.clone(),
+            })
+            .spawn(|_m| future, schedule);
         runnable.schedule();
         task
     }
@@ -69,14 +103,22 @@ where
         &self,
         identifier: impl Into<TaskIdentifier>,
         future: impl Future<Output = T> + 'static,
-    ) -> Task<T>
+    ) -> Task<T, O>
     where
         T: 'static,
     {
         let identifier = identifier.into();
-        let future = self.droppable_future(identifier.clone(), future);
-        let schedule = self.runnable_schedule_cb(identifier);
-        let (runnable, task) = async_task::spawn_local(future, schedule);
+        self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
+        (self.observer)(TaskState::Spawn(identifier.clone()));
+
+        let schedule = self.runnable_schedule_cb(identifier.clone());
+        let (runnable, task) = async_task::Builder::new()
+            .metadata(TaskMetadata {
+                num_spawned_tasks: self.num_spawned_tasks.clone(),
+                identifier,
+                observer: self.observer.clone(),
+            })
+            .spawn_local(move |_m| future, schedule);
         runnable.schedule();
         task
     }
@@ -104,29 +146,7 @@ where
             .fetch_sub(num_woken_tasks, Ordering::Relaxed);
     }
 
-    fn droppable_future<F>(
-        &self,
-        identifier: TaskIdentifier,
-        future: F,
-    ) -> DroppableFuture<F, impl Fn()>
-    where
-        F: Future,
-    {
-        let observer = self.observer.clone();
-
-        // Spawn Task
-        self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
-        observer(TaskState::Spawn(identifier.clone()));
-
-        // Droppable Future registering on_drop callback
-        let num_spawned_tasks = self.num_spawned_tasks.clone();
-        DroppableFuture::new(future, move || {
-            num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer(TaskState::Drop(identifier.clone()));
-        })
-    }
-
-    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
+    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(TaskRunnable<O>) {
         let sender = self.channel.0.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();
@@ -145,7 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_multiple_tasks() {
+    fn test_multiple_local_tasks() {
         let executor = TickedAsyncExecutor::default();
         executor
             .spawn_local("A", async move {
@@ -167,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_task_cancellation() {
+    fn test_local_tasks_cancellation() {
         let executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
         let task1 = executor.spawn_local("A", async move {
             loop {
@@ -176,6 +196,38 @@ mod tests {
         });
 
         let task2 = executor.spawn_local(format!("B"), async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+        assert_eq!(executor.num_tasks(), 2);
+        executor.tick();
+
+        executor
+            .spawn_local("CancelTasks", async move {
+                let (t1, t2) = join!(task1.cancel(), task2.cancel());
+                assert_eq!(t1, None);
+                assert_eq!(t2, None);
+            })
+            .detach();
+        assert_eq!(executor.num_tasks(), 3);
+
+        // Since we have cancelled the tasks above, the loops should eventually end
+        while executor.num_tasks() != 0 {
+            executor.tick();
+        }
+    }
+
+    #[test]
+    fn test_tasks_cancellation() {
+        let executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
+        let task1 = executor.spawn("A", async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+
+        let task2 = executor.spawn(format!("B"), async move {
             loop {
                 tokio::task::yield_now().await;
             }

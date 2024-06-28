@@ -1,6 +1,3 @@
-mod droppable_future;
-use droppable_future::*;
-
 mod task_identifier;
 pub use task_identifier::*;
 
