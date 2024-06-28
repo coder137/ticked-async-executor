@@ -165,7 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_multiple_tasks() {
+    fn test_multiple_local_tasks() {
         let executor = TickedAsyncExecutor::default();
         executor
             .spawn_local("A", async move {
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_task_cancellation() {
+    fn test_local_tasks_cancellation() {
         let executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
         let task1 = executor.spawn_local("A", async move {
             loop {
@@ -196,6 +196,38 @@ mod tests {
         });
 
         let task2 = executor.spawn_local(format!("B"), async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+        assert_eq!(executor.num_tasks(), 2);
+        executor.tick();
+
+        executor
+            .spawn_local("CancelTasks", async move {
+                let (t1, t2) = join!(task1.cancel(), task2.cancel());
+                assert_eq!(t1, None);
+                assert_eq!(t2, None);
+            })
+            .detach();
+        assert_eq!(executor.num_tasks(), 3);
+
+        // Since we have cancelled the tasks above, the loops should eventually end
+        while executor.num_tasks() != 0 {
+            executor.tick();
+        }
+    }
+
+    #[test]
+    fn test_tasks_cancellation() {
+        let executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
+        let task1 = executor.spawn("A", async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+
+        let task2 = executor.spawn(format!("B"), async move {
             loop {
                 tokio::task::yield_now().await;
             }
