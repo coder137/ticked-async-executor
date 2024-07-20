@@ -101,14 +101,11 @@ where
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
-    pub fn tick(&self, delta_in_ms: f64, maybe_limit: Option<usize>) {
+    pub fn tick(&self, delta_in_ms: f64) {
         let _r = self.tick_event.send(delta_in_ms);
 
         // Clamp woken tasks to limit
-        let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
-        if let Some(limit) = maybe_limit {
-            num_woken_tasks = num_woken_tasks.clamp(0, limit);
-        }
+        let num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
         self.channel
             .1
             .try_iter()
@@ -182,10 +179,10 @@ mod tests {
             })
             .detach();
 
-        executor.tick(DELTA, None);
+        executor.tick(DELTA);
         assert_eq!(executor.num_tasks(), 2);
 
-        executor.tick(DELTA, None);
+        executor.tick(DELTA);
         assert_eq!(executor.num_tasks(), 0);
     }
 
@@ -204,7 +201,7 @@ mod tests {
             }
         });
         assert_eq!(executor.num_tasks(), 2);
-        executor.tick(DELTA, None);
+        executor.tick(DELTA);
 
         executor
             .spawn_local("CancelTasks", async move {
@@ -217,7 +214,7 @@ mod tests {
 
         // Since we have cancelled the tasks above, the loops should eventually end
         while executor.num_tasks() != 0 {
-            executor.tick(DELTA, None);
+            executor.tick(DELTA);
         }
     }
 
@@ -247,7 +244,7 @@ mod tests {
         let mut instances = vec![];
         while executor.num_tasks() != 0 {
             let current = Instant::now();
-            executor.tick(DELTA, None);
+            executor.tick(DELTA);
             instances.push(current.elapsed());
             std::thread::sleep(Duration::from_millis(16));
         }
