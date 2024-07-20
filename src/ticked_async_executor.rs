@@ -101,8 +101,8 @@ where
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
-    pub fn tick(&self, delta_in_ms: f64) {
-        let _r = self.tick_event.send(delta_in_ms);
+    pub fn tick(&self, delta: f64) {
+        let _r = self.tick_event.send(delta);
 
         // Clamp woken tasks to limit
         let num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
@@ -111,7 +111,7 @@ where
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::Tick(identifier, delta_in_ms));
+                (self.observer)(TaskState::Tick(identifier, delta));
                 runnable.run();
             });
         self.num_woken_tasks
