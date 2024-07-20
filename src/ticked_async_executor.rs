@@ -140,8 +140,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use tokio::join;
-
     use super::*;
 
     #[test]
@@ -185,7 +183,7 @@ mod tests {
 
         executor
             .spawn_local("CancelTasks", async move {
-                let (t1, t2) = join!(task1.cancel(), task2.cancel());
+                let (t1, t2) = tokio::join!(task1.cancel(), task2.cancel());
                 assert_eq!(t1, None);
                 assert_eq!(t2, None);
             })
@@ -193,6 +191,84 @@ mod tests {
         assert_eq!(executor.num_tasks(), 3);
 
         // Since we have cancelled the tasks above, the loops should eventually end
+        while executor.num_tasks() != 0 {
+            executor.tick();
+        }
+    }
+
+    #[test]
+    fn test_tokio_join() {
+        let executor = TickedAsyncExecutor::default();
+
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
+        let (tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);
+        executor
+            .spawn("ThreadedFuture", async move {
+                let (a, b) = tokio::join!(rx1.recv(), rx2.recv());
+                assert_eq!(a.unwrap(), 10);
+                assert_eq!(b.unwrap(), 20);
+            })
+            .detach();
+
+        let (tx3, mut rx3) = tokio::sync::mpsc::channel::<usize>(1);
+        let (tx4, mut rx4) = tokio::sync::mpsc::channel::<usize>(1);
+        executor
+            .spawn("LocalFuture", async move {
+                let (a, b) = tokio::join!(rx3.recv(), rx4.recv());
+                assert_eq!(a.unwrap(), 10);
+                assert_eq!(b.unwrap(), 20);
+            })
+            .detach();
+
+        tx1.try_send(10).unwrap();
+        tx3.try_send(10).unwrap();
+        for _ in 0..10 {
+            executor.tick();
+        }
+        tx2.try_send(20).unwrap();
+        tx4.try_send(20).unwrap();
+
+        while executor.num_tasks() != 0 {
+            executor.tick();
+        }
+    }
+
+    #[test]
+    fn test_tokio_select() {
+        let executor = TickedAsyncExecutor::default();
+
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
+        let (_tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);
+        executor
+            .spawn("ThreadedFuture", async move {
+                tokio::select! {
+                    data = rx1.recv() => {
+                        assert_eq!(data.unwrap(), 10);
+                    }
+                    _ = rx2.recv() => {}
+                }
+            })
+            .detach();
+
+        let (tx3, mut rx3) = tokio::sync::mpsc::channel::<usize>(1);
+        let (_tx4, mut rx4) = tokio::sync::mpsc::channel::<usize>(1);
+        executor
+            .spawn("LocalFuture", async move {
+                tokio::select! {
+                    data = rx3.recv() => {
+                        assert_eq!(data.unwrap(), 10);
+                    }
+                    _ = rx4.recv() => {}
+                }
+            })
+            .detach();
+
+        for _ in 0..10 {
+            executor.tick();
+        }
+
+        tx1.try_send(10).unwrap();
+        tx3.try_send(10).unwrap();
         while executor.num_tasks() != 0 {
             executor.tick();
         }
