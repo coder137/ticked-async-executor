@@ -123,6 +123,10 @@ where
         TickedTimer { tick_recv }
     }
 
+    pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
+        self.tick_event.subscribe()
+    }
+
     fn droppable_future<F>(
         &self,
         identifier: TaskIdentifier,
