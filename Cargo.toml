@@ -7,5 +7,10 @@ edition = "2021"
 async-task = "4.7"
 pin-project = "1"
 
+# For timer only
+# TODO, Add this under a feature gate
+# TODO, Only tokio::sync::watch channel is used (find individual dependency)
+tokio = { version = "1.0", default-features = false, features = ["sync"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

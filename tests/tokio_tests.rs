@@ -1,5 +1,7 @@
 use ticked_async_executor::TickedAsyncExecutor;
 
+const DELTA: f64 = 1000.0 / 60.0;
+
 #[test]
 fn test_tokio_join() {
     let executor = TickedAsyncExecutor::default();
@@ -27,13 +29,13 @@ fn test_tokio_join() {
     tx1.try_send(10).unwrap();
     tx3.try_send(10).unwrap();
     for _ in 0..10 {
-        executor.tick();
+        executor.tick(DELTA);
     }
     tx2.try_send(20).unwrap();
     tx4.try_send(20).unwrap();
 
     while executor.num_tasks() != 0 {
-        executor.tick();
+        executor.tick(DELTA);
     }
 }
 
@@ -68,12 +70,12 @@ fn test_tokio_select() {
         .detach();
 
     for _ in 0..10 {
-        executor.tick();
+        executor.tick(DELTA);
     }
 
     tx1.try_send(10).unwrap();
     tx3.try_send(10).unwrap();
     while executor.num_tasks() != 0 {
-        executor.tick();
+        executor.tick(DELTA);
     }
 }

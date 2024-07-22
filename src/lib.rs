@@ -6,3 +6,6 @@ pub use task_identifier::*;
 
 mod ticked_async_executor;
 pub use ticked_async_executor::*;
+
+mod ticked_timer;
+pub use ticked_timer::*;

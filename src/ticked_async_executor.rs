@@ -6,13 +6,13 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskIdentifier};
+use crate::{DroppableFuture, TaskIdentifier, TickedTimer};
 
 #[derive(Debug)]
 pub enum TaskState {
     Spawn(TaskIdentifier),
     Wake(TaskIdentifier),
-    Tick(TaskIdentifier),
+    Tick(TaskIdentifier, f64),
     Drop(TaskIdentifier),
 }
 
@@ -28,6 +28,8 @@ pub struct TickedAsyncExecutor<O> {
     // Broadcast recv channel should be notified when there are new messages in the queue
     // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
+
+    tick_event: tokio::sync::watch::Sender<f64>,
 }
 
 impl Default for TickedAsyncExecutor<fn(TaskState)> {
@@ -46,6 +48,7 @@ where
             num_woken_tasks: Arc::new(AtomicUsize::new(0)),
             num_spawned_tasks: Arc::new(AtomicUsize::new(0)),
             observer,
+            tick_event: tokio::sync::watch::channel(1.0).0,
         }
     }
 
@@ -87,21 +90,41 @@ where
 
     /// Run the woken tasks once
     ///
+    /// `delta` is used for timing based operations
+    /// - `TickedTimer` uses this delta value to tick till completion
+    ///
+    /// `maybe_limit` is used to limit the number of woken tasks run per tick
+    /// - None would imply that there is no limit (all woken tasks would run)
+    /// - Some(limit) would imply that [0..limit] woken tasks would run,
+    /// even if more tasks are woken.
+    ///
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
-    pub fn tick(&self) {
+    pub fn tick(&self, delta: f64) {
+        let _r = self.tick_event.send(delta);
+
+        // Clamp woken tasks to limit
         let num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
         self.channel
             .1
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::Tick(identifier));
+                (self.observer)(TaskState::Tick(identifier, delta));
                 runnable.run();
             });
         self.num_woken_tasks
             .fetch_sub(num_woken_tasks, Ordering::Relaxed);
+    }
+
+    pub fn create_timer(&self) -> TickedTimer {
+        let tick_recv = self.tick_event.subscribe();
+        TickedTimer { tick_recv }
+    }
+
+    pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
+        self.tick_event.subscribe()
     }
 
     fn droppable_future<F>(
@@ -141,6 +164,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
+
+    const DELTA: f64 = 1000.0 / 60.0;
 
     #[test]
     fn test_multiple_tasks() {
@@ -157,10 +183,10 @@ mod tests {
             })
             .detach();
 
-        executor.tick();
+        executor.tick(DELTA);
         assert_eq!(executor.num_tasks(), 2);
 
-        executor.tick();
+        executor.tick(DELTA);
         assert_eq!(executor.num_tasks(), 0);
     }
 
@@ -179,7 +205,7 @@ mod tests {
             }
         });
         assert_eq!(executor.num_tasks(), 2);
-        executor.tick();
+        executor.tick(DELTA);
 
         executor
             .spawn_local("CancelTasks", async move {
@@ -192,7 +218,85 @@ mod tests {
 
         // Since we have cancelled the tasks above, the loops should eventually end
         while executor.num_tasks() != 0 {
-            executor.tick();
+            executor.tick(DELTA);
         }
+    }
+
+    #[test]
+    fn test_ticked_timer() {
+        let executor = TickedAsyncExecutor::default();
+
+        for _ in 0..10 {
+            let timer: TickedTimer = executor.create_timer();
+            executor
+                .spawn("ThreadedTimer", async move {
+                    timer.sleep_for(256.0).await;
+                })
+                .detach();
+        }
+
+        for _ in 0..10 {
+            let timer = executor.create_timer();
+            executor
+                .spawn_local("LocalTimer", async move {
+                    timer.sleep_for(256.0).await;
+                })
+                .detach();
+        }
+
+        let now = Instant::now();
+        let mut instances = vec![];
+        while executor.num_tasks() != 0 {
+            let current = Instant::now();
+            executor.tick(DELTA);
+            instances.push(current.elapsed());
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        let elapsed = now.elapsed();
+        println!("Elapsed: {:?}", elapsed);
+        println!("Total: {:?}", instances);
+
+        // Test Timer cancellation
+        let timer = executor.create_timer();
+        executor
+            .spawn("ThreadedFuture", async move {
+                timer.sleep_for(1000.0).await;
+            })
+            .detach();
+
+        let timer = executor.create_timer();
+        executor
+            .spawn_local("LocalFuture", async move {
+                timer.sleep_for(1000.0).await;
+            })
+            .detach();
+
+        let mut tick_event = executor.tick_channel();
+        executor
+            .spawn("ThreadedTickFuture", async move {
+                loop {
+                    let _r = tick_event.changed().await;
+                    if _r.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+
+        let mut tick_event = executor.tick_channel();
+        executor
+            .spawn_local("LocalTickFuture", async move {
+                loop {
+                    let _r = tick_event.changed().await;
+                    if _r.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+
+        executor.tick(DELTA);
+        assert_eq!(executor.num_tasks(), 4);
+        drop(executor);
     }
 }
