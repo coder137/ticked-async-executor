@@ -255,5 +255,48 @@ mod tests {
         let elapsed = now.elapsed();
         println!("Elapsed: {:?}", elapsed);
         println!("Total: {:?}", instances);
+
+        // Test Timer cancellation
+        let timer = executor.create_timer();
+        executor
+            .spawn("ThreadedFuture", async move {
+                timer.sleep_for(1000.0).await;
+            })
+            .detach();
+
+        let timer = executor.create_timer();
+        executor
+            .spawn_local("LocalFuture", async move {
+                timer.sleep_for(1000.0).await;
+            })
+            .detach();
+
+        let mut tick_event = executor.tick_channel();
+        executor
+            .spawn("ThreadedTickFuture", async move {
+                loop {
+                    let _r = tick_event.changed().await;
+                    if _r.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+
+        let mut tick_event = executor.tick_channel();
+        executor
+            .spawn_local("LocalTickFuture", async move {
+                loop {
+                    let _r = tick_event.changed().await;
+                    if _r.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+
+        executor.tick(DELTA);
+        assert_eq!(executor.num_tasks(), 4);
+        drop(executor);
     }
 }
