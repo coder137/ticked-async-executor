@@ -13,4 +13,4 @@ pin-project = "1"
 tokio = { version = "=1.38.1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.38.1", features = ["full"] }
