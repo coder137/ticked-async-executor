@@ -22,7 +22,6 @@ type Payload = (TaskIdentifier, async_task::Runnable);
 pub struct TickedAsyncExecutor<O> {
     channel: (mpsc::Sender<Payload>, mpsc::Receiver<Payload>),
     num_woken_tasks: Arc<AtomicUsize>,
-
     num_spawned_tasks: Arc<AtomicUsize>,
 
     // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
@@ -51,6 +50,22 @@ where
             observer,
             tick_event: tokio::sync::watch::channel(1.0).0,
         }
+    }
+
+    pub fn spawn<T>(
+        &self,
+        identifier: impl Into<TaskIdentifier>,
+        future: impl Future<Output = T> + Send + 'static,
+    ) -> Task<T>
+    where
+        T: Send + 'static,
+    {
+        let identifier = identifier.into();
+        let future = self.droppable_future(identifier.clone(), future);
+        let schedule = self.runnable_schedule_cb(identifier);
+        let (runnable, task) = async_task::spawn(future, schedule);
+        runnable.schedule();
+        task
     }
 
     pub fn spawn_local<T>(
@@ -157,7 +172,7 @@ mod tests {
     fn test_multiple_tasks() {
         let executor = TickedAsyncExecutor::default();
         executor
-            .spawn_local("A", async move {
+            .spawn("A", async move {
                 tokio::task::yield_now().await;
             })
             .detach();
@@ -212,6 +227,15 @@ mod tests {
         let executor = TickedAsyncExecutor::default();
 
         for _ in 0..10 {
+            let timer: TickedTimer = executor.create_timer();
+            executor
+                .spawn("ThreadedTimer", async move {
+                    timer.sleep_for(256.0).await;
+                })
+                .detach();
+        }
+
+        for _ in 0..10 {
             let timer = executor.create_timer();
             executor
                 .spawn_local("LocalTimer", async move {
@@ -231,30 +255,25 @@ mod tests {
         let elapsed = now.elapsed();
         println!("Elapsed: {:?}", elapsed);
         println!("Total: {:?}", instances);
-        println!(
-            "Min: {:?}, Max: {:?}",
-            instances.iter().min(),
-            instances.iter().max()
-        );
 
         // Test Timer cancellation
         let timer = executor.create_timer();
         executor
-            .spawn_local("LocalFuture1", async move {
+            .spawn("ThreadedFuture", async move {
                 timer.sleep_for(1000.0).await;
             })
             .detach();
 
         let timer = executor.create_timer();
         executor
-            .spawn_local("LocalFuture2", async move {
+            .spawn_local("LocalFuture", async move {
                 timer.sleep_for(1000.0).await;
             })
             .detach();
 
         let mut tick_event = executor.tick_channel();
         executor
-            .spawn_local("LocalTickFuture1", async move {
+            .spawn("ThreadedTickFuture", async move {
                 loop {
                     let _r = tick_event.changed().await;
                     if _r.is_err() {
@@ -266,7 +285,7 @@ mod tests {
 
         let mut tick_event = executor.tick_channel();
         executor
-            .spawn_local("LocalTickFuture2", async move {
+            .spawn_local("LocalTickFuture", async move {
                 loop {
                     let _r = tick_event.changed().await;
                     if _r.is_err() {
