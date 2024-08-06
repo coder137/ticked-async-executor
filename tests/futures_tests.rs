@@ -10,7 +10,7 @@ fn test_futures_join() {
     let (mut tx1, mut rx1) = futures::channel::mpsc::channel::<usize>(1);
     let (mut tx2, mut rx2) = futures::channel::mpsc::channel::<usize>(1);
     executor
-        .spawn_local("ThreadedFuture", async move {
+        .spawn("ThreadedFuture", async move {
             let (a, b) = futures::join!(rx1.next(), rx2.next());
             assert_eq!(a.unwrap(), 10);
             assert_eq!(b.unwrap(), 20);
@@ -20,7 +20,7 @@ fn test_futures_join() {
     let (mut tx3, mut rx3) = futures::channel::mpsc::channel::<usize>(1);
     let (mut tx4, mut rx4) = futures::channel::mpsc::channel::<usize>(1);
     executor
-        .spawn_local("LocalFuture", async move {
+        .spawn("LocalFuture", async move {
             let (a, b) = futures::join!(rx3.next(), rx4.next());
             assert_eq!(a.unwrap(), 10);
             assert_eq!(b.unwrap(), 20);
@@ -47,7 +47,7 @@ fn test_futures_select() {
     let (mut tx1, mut rx1) = futures::channel::mpsc::channel::<usize>(1);
     let (_tx2, mut rx2) = futures::channel::mpsc::channel::<usize>(1);
     executor
-        .spawn_local("ThreadedFuture", async move {
+        .spawn("ThreadedFuture", async move {
             futures::select! {
                 data = rx1.next() => {
                     assert_eq!(data.unwrap(), 10);
@@ -60,7 +60,7 @@ fn test_futures_select() {
     let (mut tx3, mut rx3) = futures::channel::mpsc::channel::<usize>(1);
     let (_tx4, mut rx4) = futures::channel::mpsc::channel::<usize>(1);
     executor
-        .spawn_local("LocalFuture", async move {
+        .spawn("LocalFuture", async move {
             futures::select! {
                 data = rx3.next() => {
                     assert_eq!(data.unwrap(), 10);
