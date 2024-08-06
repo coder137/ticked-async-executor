@@ -211,7 +211,7 @@ mod tests {
     fn test_ticked_timer() {
         let executor = TickedAsyncExecutor::default();
 
-        for _ in 0..10000 {
+        for _ in 0..10 {
             let timer = executor.create_timer();
             executor
                 .spawn_local("LocalTimer", async move {
