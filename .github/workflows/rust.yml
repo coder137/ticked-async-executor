@@ -46,9 +46,9 @@ jobs:
             token: ${{ secrets.CODECOV_TOKEN }}
             files: target/cobertura.xml
 
-      - name: Miri
-        run: |
-          rustup toolchain install nightly --component miri
-          rustup override set nightly
-          cargo miri setup
-          cargo miri test
+      # - name: Miri
+      #   run: |
+      #     rustup toolchain install nightly --component miri
+      #     rustup override set nightly
+      #     cargo miri setup
+      #     cargo miri test

@@ -9,7 +9,7 @@ fn test_tokio_join() {
     let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
     let (tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);
     executor
-        .spawn("ThreadedFuture", async move {
+        .spawn_local("LocalFuture1", async move {
             let (a, b) = tokio::join!(rx1.recv(), rx2.recv());
             assert_eq!(a.unwrap(), 10);
             assert_eq!(b.unwrap(), 20);
@@ -19,7 +19,7 @@ fn test_tokio_join() {
     let (tx3, mut rx3) = tokio::sync::mpsc::channel::<usize>(1);
     let (tx4, mut rx4) = tokio::sync::mpsc::channel::<usize>(1);
     executor
-        .spawn("LocalFuture", async move {
+        .spawn_local("LocalFuture2", async move {
             let (a, b) = tokio::join!(rx3.recv(), rx4.recv());
             assert_eq!(a.unwrap(), 10);
             assert_eq!(b.unwrap(), 20);
@@ -46,7 +46,7 @@ fn test_tokio_select() {
     let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
     let (_tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);
     executor
-        .spawn("ThreadedFuture", async move {
+        .spawn_local("LocalFuture1", async move {
             tokio::select! {
                 data = rx1.recv() => {
                     assert_eq!(data.unwrap(), 10);
@@ -59,7 +59,7 @@ fn test_tokio_select() {
     let (tx3, mut rx3) = tokio::sync::mpsc::channel::<usize>(1);
     let (_tx4, mut rx4) = tokio::sync::mpsc::channel::<usize>(1);
     executor
-        .spawn("LocalFuture", async move {
+        .spawn_local("LocalFuture2", async move {
             tokio::select! {
                 data = rx3.recv() => {
                     assert_eq!(data.unwrap(), 10);
