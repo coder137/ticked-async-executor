@@ -29,13 +29,13 @@ fn test_tokio_join() {
     tx1.try_send(10).unwrap();
     tx3.try_send(10).unwrap();
     for _ in 0..10 {
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
     }
     tx2.try_send(20).unwrap();
     tx4.try_send(20).unwrap();
 
     while executor.num_tasks() != 0 {
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
     }
 }
 
@@ -70,12 +70,12 @@ fn test_tokio_select() {
         .detach();
 
     for _ in 0..10 {
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
     }
 
     tx1.try_send(10).unwrap();
     tx3.try_send(10).unwrap();
     while executor.num_tasks() != 0 {
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
     }
 }

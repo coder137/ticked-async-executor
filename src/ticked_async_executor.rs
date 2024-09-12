@@ -78,7 +78,7 @@ where
     /// `delta` is used for timing based operations
     /// - `TickedTimer` uses this delta value to tick till completion
     ///
-    /// `maybe_limit` is used to limit the number of woken tasks run per tick
+    /// `limit` is used to limit the number of woken tasks run per tick
     /// - None would imply that there is no limit (all woken tasks would run)
     /// - Some(limit) would imply that [0..limit] woken tasks would run,
     /// even if more tasks are woken.
@@ -86,11 +86,15 @@ where
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
-    pub fn tick(&self, delta: f64) {
+    pub fn tick(&self, delta: f64, limit: Option<usize>) {
         let _r = self.tick_event.send(delta);
 
-        // Clamp woken tasks to limit
-        let num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
+        let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
+        if let Some(limit) = limit {
+            // Woken tasks should not exceed the allowed limit
+            num_woken_tasks = num_woken_tasks.min(limit);
+        }
+
         self.channel
             .1
             .try_iter()
@@ -154,6 +158,20 @@ mod tests {
     const DELTA: f64 = 1000.0 / 60.0;
 
     #[test]
+    fn test_one_task() {
+        const DELTA: f64 = 1.0 / 60.0;
+        const LIMIT: Option<usize> = None;
+
+        let executor = TickedAsyncExecutor::default();
+
+        executor.spawn_local("MyIdentifier", async move {}).detach();
+
+        // Make sure to tick your executor to run the tasks
+        executor.tick(DELTA, LIMIT);
+        assert_eq!(executor.num_tasks(), 0);
+    }
+
+    #[test]
     fn test_multiple_tasks() {
         let executor = TickedAsyncExecutor::default();
         executor
@@ -168,10 +186,10 @@ mod tests {
             })
             .detach();
 
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
         assert_eq!(executor.num_tasks(), 2);
 
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
         assert_eq!(executor.num_tasks(), 0);
     }
 
@@ -190,7 +208,7 @@ mod tests {
             }
         });
         assert_eq!(executor.num_tasks(), 2);
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
 
         executor
             .spawn_local("CancelTasks", async move {
@@ -203,7 +221,7 @@ mod tests {
 
         // Since we have cancelled the tasks above, the loops should eventually end
         while executor.num_tasks() != 0 {
-            executor.tick(DELTA);
+            executor.tick(DELTA, None);
         }
     }
 
@@ -224,7 +242,7 @@ mod tests {
         let mut instances = vec![];
         while executor.num_tasks() != 0 {
             let current = Instant::now();
-            executor.tick(DELTA);
+            executor.tick(DELTA, None);
             instances.push(current.elapsed());
             std::thread::sleep(Duration::from_millis(16));
         }
@@ -276,8 +294,28 @@ mod tests {
             })
             .detach();
 
-        executor.tick(DELTA);
+        executor.tick(DELTA, None);
         assert_eq!(executor.num_tasks(), 4);
         drop(executor);
+    }
+
+    #[test]
+    fn test_limit() {
+        let executor = TickedAsyncExecutor::default();
+        for i in 0..10 {
+            executor
+                .spawn_local(format!("{i}"), async move {
+                    println!("Finish {i}");
+                })
+                .detach();
+        }
+
+        for i in 0..10 {
+            let woken_tasks = executor.num_woken_tasks.load(Ordering::Relaxed);
+            assert_eq!(woken_tasks, 10 - i);
+            executor.tick(0.1, Some(1));
+        }
+
+        assert_eq!(executor.num_tasks(), 0);
     }
 }
