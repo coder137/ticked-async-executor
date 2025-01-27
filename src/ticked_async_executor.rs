@@ -64,6 +64,10 @@ where
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
         self.spawner.tick_channel()
     }
+
+    pub fn wait_till_completed(&self, delta: f64) {
+        self.ticker.wait_till_completed(delta);
+    }
 }
 
 #[cfg(test)]
@@ -136,9 +140,7 @@ mod tests {
         assert_eq!(executor.num_tasks(), 3);
 
         // Since we have cancelled the tasks above, the loops should eventually end
-        while executor.num_tasks() != 0 {
-            executor.tick(DELTA, None);
-        }
+        executor.wait_till_completed(DELTA);
     }
 
     #[test]
