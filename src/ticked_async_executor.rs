@@ -1,36 +1,13 @@
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
-    },
+use std::future::Future;
+
+use crate::{
+    new_split_ticked_async_executor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorSpawner,
+    TickedAsyncExecutorTicker, TickedTimer,
 };
 
-use crate::{DroppableFuture, TaskIdentifier, TickedTimer};
-
-#[derive(Debug)]
-pub enum TaskState {
-    Spawn(TaskIdentifier),
-    Wake(TaskIdentifier),
-    Tick(TaskIdentifier, f64),
-    Drop(TaskIdentifier),
-}
-
-pub type Task<T> = async_task::Task<T>;
-type Payload = (TaskIdentifier, async_task::Runnable);
-
 pub struct TickedAsyncExecutor<O> {
-    channel: (mpsc::Sender<Payload>, mpsc::Receiver<Payload>),
-    num_woken_tasks: Arc<AtomicUsize>,
-
-    num_spawned_tasks: Arc<AtomicUsize>,
-
-    // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
-    // Broadcast recv channel should be notified when there are new messages in the queue
-    // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
-    observer: O,
-
-    tick_event: tokio::sync::watch::Sender<f64>,
+    spawner: TickedAsyncExecutorSpawner<O>,
+    ticker: TickedAsyncExecutorTicker<O>,
 }
 
 impl Default for TickedAsyncExecutor<fn(TaskState)> {
@@ -44,13 +21,8 @@ where
     O: Fn(TaskState) + Clone + Send + Sync + 'static,
 {
     pub fn new(observer: O) -> Self {
-        Self {
-            channel: mpsc::channel(),
-            num_woken_tasks: Arc::new(AtomicUsize::new(0)),
-            num_spawned_tasks: Arc::new(AtomicUsize::new(0)),
-            observer,
-            tick_event: tokio::sync::watch::channel(1.0).0,
-        }
+        let (spawner, ticker) = new_split_ticked_async_executor(observer);
+        Self { spawner, ticker }
     }
 
     pub fn spawn_local<T>(
@@ -61,16 +33,11 @@ where
     where
         T: 'static,
     {
-        let identifier = identifier.into();
-        let future = self.droppable_future(identifier.clone(), future);
-        let schedule = self.runnable_schedule_cb(identifier);
-        let (runnable, task) = async_task::spawn_local(future, schedule);
-        runnable.schedule();
-        task
+        self.spawner.spawn_local(identifier, future)
     }
 
     pub fn num_tasks(&self) -> usize {
-        self.num_spawned_tasks.load(Ordering::Relaxed)
+        self.spawner.num_tasks()
     }
 
     /// Run the woken tasks once
@@ -81,72 +48,25 @@ where
     /// `limit` is used to limit the number of woken tasks run per tick
     /// - None would imply that there is no limit (all woken tasks would run)
     /// - Some(limit) would imply that [0..limit] woken tasks would run,
-    /// even if more tasks are woken.
+    ///   even if more tasks are woken.
     ///
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
     pub fn tick(&self, delta: f64, limit: Option<usize>) {
-        let _r = self.tick_event.send(delta);
-
-        let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
-        if let Some(limit) = limit {
-            // Woken tasks should not exceed the allowed limit
-            num_woken_tasks = num_woken_tasks.min(limit);
-        }
-
-        self.channel
-            .1
-            .try_iter()
-            .take(num_woken_tasks)
-            .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::Tick(identifier, delta));
-                runnable.run();
-            });
-        self.num_woken_tasks
-            .fetch_sub(num_woken_tasks, Ordering::Relaxed);
+        self.ticker.tick(delta, limit);
     }
 
     pub fn create_timer(&self) -> TickedTimer {
-        let tick_recv = self.tick_event.subscribe();
-        TickedTimer { tick_recv }
+        self.spawner.create_timer()
     }
 
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
-        self.tick_event.subscribe()
+        self.spawner.tick_channel()
     }
 
-    fn droppable_future<F>(
-        &self,
-        identifier: TaskIdentifier,
-        future: F,
-    ) -> DroppableFuture<F, impl Fn()>
-    where
-        F: Future,
-    {
-        let observer = self.observer.clone();
-
-        // Spawn Task
-        self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
-        observer(TaskState::Spawn(identifier.clone()));
-
-        // Droppable Future registering on_drop callback
-        let num_spawned_tasks = self.num_spawned_tasks.clone();
-        DroppableFuture::new(future, move || {
-            num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer(TaskState::Drop(identifier.clone()));
-        })
-    }
-
-    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
-        let sender = self.channel.0.clone();
-        let num_woken_tasks = self.num_woken_tasks.clone();
-        let observer = self.observer.clone();
-        move |runnable| {
-            sender.send((identifier.clone(), runnable)).unwrap_or(());
-            num_woken_tasks.fetch_add(1, Ordering::Relaxed);
-            observer(TaskState::Wake(identifier.clone()));
-        }
+    pub fn wait_till_completed(&self, delta: f64) {
+        self.ticker.wait_till_completed(delta);
     }
 }
 
@@ -220,9 +140,7 @@ mod tests {
         assert_eq!(executor.num_tasks(), 3);
 
         // Since we have cancelled the tasks above, the loops should eventually end
-        while executor.num_tasks() != 0 {
-            executor.tick(DELTA, None);
-        }
+        executor.wait_till_completed(DELTA);
     }
 
     #[test]
@@ -311,8 +229,8 @@ mod tests {
         }
 
         for i in 0..10 {
-            let woken_tasks = executor.num_woken_tasks.load(Ordering::Relaxed);
-            assert_eq!(woken_tasks, 10 - i);
+            let num_tasks = executor.num_tasks();
+            assert_eq!(num_tasks, 10 - i);
             executor.tick(0.1, Some(1));
         }
 
