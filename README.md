@@ -62,3 +62,10 @@ assert_eq!(executor.num_tasks(), 0);
 
 - Uses the `smol` ecosystem
 - Ensure that tasks are spawned on the same thread as the one that initializes the executor
+
+# Roadmap
+
+- [x] TickedAsyncExecutor
+- [x] SplitTickedAsyncExecutor
+  - Similar to the channel API, but spawner and ticker cannot be moved to different threads 
+- [ ] Tracing
