@@ -19,31 +19,40 @@ pub enum TaskState {
 pub type Task<T> = async_task::Task<T>;
 type Payload = (TaskIdentifier, async_task::Runnable);
 
-pub fn new_split_ticked_async_executor<O>(
-    observer: O,
-) -> (TickedAsyncExecutorSpawner<O>, TickedAsyncExecutorTicker<O>)
-where
-    O: Fn(TaskState) + Clone + Send + Sync + 'static,
-{
-    let (tx_channel, rx_channel) = mpsc::channel();
-    let num_woken_tasks = Arc::new(AtomicUsize::new(0));
-    let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
-    let (tx_tick_event, rx_tick_event) = tokio::sync::watch::channel(1.0);
-    let spawner = TickedAsyncExecutorSpawner {
-        tx_channel,
-        num_woken_tasks: num_woken_tasks.clone(),
-        num_spawned_tasks: num_spawned_tasks.clone(),
-        observer: observer.clone(),
-        rx_tick_event,
-    };
-    let ticker = TickedAsyncExecutorTicker {
-        rx_channel,
-        num_woken_tasks,
-        num_spawned_tasks,
-        observer,
-        tx_tick_event,
-    };
-    (spawner, ticker)
+pub struct SplitTickedAsyncExecutor;
+
+impl SplitTickedAsyncExecutor {
+    pub fn default() -> (
+        TickedAsyncExecutorSpawner<fn(TaskState)>,
+        TickedAsyncExecutorTicker<fn(TaskState)>,
+    ) {
+        Self::new(|_state| {})
+    }
+
+    pub fn new<O>(observer: O) -> (TickedAsyncExecutorSpawner<O>, TickedAsyncExecutorTicker<O>)
+    where
+        O: Fn(TaskState) + Clone + Send + Sync + 'static,
+    {
+        let (tx_channel, rx_channel) = mpsc::channel();
+        let num_woken_tasks = Arc::new(AtomicUsize::new(0));
+        let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
+        let (tx_tick_event, rx_tick_event) = tokio::sync::watch::channel(1.0);
+        let spawner = TickedAsyncExecutorSpawner {
+            tx_channel,
+            num_woken_tasks: num_woken_tasks.clone(),
+            num_spawned_tasks: num_spawned_tasks.clone(),
+            observer: observer.clone(),
+            rx_tick_event,
+        };
+        let ticker = TickedAsyncExecutorTicker {
+            rx_channel,
+            num_woken_tasks,
+            num_spawned_tasks,
+            observer,
+            tx_tick_event,
+        };
+        (spawner, ticker)
+    }
 }
 
 pub struct TickedAsyncExecutorSpawner<O> {

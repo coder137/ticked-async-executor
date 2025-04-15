@@ -27,9 +27,8 @@ assert_eq!(executor.num_tasks(), 0);
 use ticked_async_executor::*;
 
 const DELTA: f64 = 1000.0 / 60.0;
-let task_state_cb: fn(TaskState) = |_state| {};
 
-let (spawner, ticker) = new_split_ticked_async_executor(task_state_cb);
+let (spawner, ticker) = SplitTickedAsyncExecutor::default();
 
 spawner.spawn_local("MyIdentifier", async move {}).detach();
 
