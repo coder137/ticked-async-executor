@@ -16,7 +16,9 @@ let executor = TickedAsyncExecutor::default();
 executor.spawn_local("MyIdentifier", async move {}).detach();
 
 // Make sure to tick your executor to run the tasks
+assert_eq!(executor.num_tasks(), 1);
 executor.tick(DELTA, None);
+assert_eq!(executor.num_tasks(), 0);
 ```
 
 ## Split Local Executor
@@ -32,7 +34,9 @@ let (spawner, ticker) = new_split_ticked_async_executor(task_state_cb);
 spawner.spawn_local("MyIdentifier", async move {}).detach();
 
 // Tick your ticker to run the tasks
+assert_eq!(spawner.num_tasks(), 1);
 ticker.tick(DELTA, None);
+assert_eq!(spawner.num_tasks(), 0);
 ```
 
 ## Limit the number of woken tasks run per tick
@@ -47,7 +51,9 @@ let executor = TickedAsyncExecutor::default();
 executor.spawn_local("MyIdentifier", async move {}).detach();
 
 // Runs upto 10 woken tasks per tick
+assert_eq!(executor.num_tasks(), 1);
 executor.tick(DELTA, Some(10));
+assert_eq!(executor.num_tasks(), 0);
 ```
 
 # Caveats
