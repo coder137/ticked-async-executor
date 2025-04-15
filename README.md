@@ -15,7 +15,7 @@ let executor = TickedAsyncExecutor::default();
 
 executor.spawn_local("MyIdentifier", async move {}).detach();
 
-// Make sure to tick your executor to run the tasks
+// Tick your executor to run the tasks
 assert_eq!(executor.num_tasks(), 1);
 executor.tick(DELTA, None);
 assert_eq!(executor.num_tasks(), 0);
@@ -48,11 +48,14 @@ const DELTA: f64 = 1000.0 / 60.0;
 
 let executor = TickedAsyncExecutor::default();
 
-executor.spawn_local("MyIdentifier", async move {}).detach();
+executor.spawn_local("MyIdentifier1", async move {}).detach();
+executor.spawn_local("MyIdentifier2", async move {}).detach();
 
-// Runs upto 10 woken tasks per tick
+// Runs upto 1 woken tasks per tick
+assert_eq!(executor.num_tasks(), 2);
+executor.tick(DELTA, Some(1));
 assert_eq!(executor.num_tasks(), 1);
-executor.tick(DELTA, Some(10));
+executor.tick(DELTA, Some(1));
 assert_eq!(executor.num_tasks(), 0);
 ```
 
