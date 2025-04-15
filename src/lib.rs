@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod droppable_future;
 use droppable_future::*;
 
