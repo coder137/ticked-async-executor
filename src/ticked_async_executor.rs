@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use crate::{
-    new_split_ticked_async_executor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorSpawner,
+    SplitTickedAsyncExecutor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorSpawner,
     TickedAsyncExecutorTicker, TickedTimer,
 };
 
@@ -21,7 +21,7 @@ where
     O: Fn(TaskState) + Clone + Send + Sync + 'static,
 {
     pub fn new(observer: O) -> Self {
-        let (spawner, ticker) = new_split_ticked_async_executor(observer);
+        let (spawner, ticker) = SplitTickedAsyncExecutor::new(observer);
         Self { spawner, ticker }
     }
 

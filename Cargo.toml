@@ -1,16 +1,18 @@
 [package]
 name = "ticked_async_executor"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["coder137"]
 edition = "2021"
+description = "Local executor that runs woken async tasks when it is ticked"
+license = "Apache-2.0"
+repository = "https://github.com/coder137/ticked-async-executor"
+categories = ["asynchronous", "concurrency", "game-development", "simulation"]
+readme = "README.md"
 
 [dependencies]
 async-task = "4.7"
 pin-project = "1"
-
-# For timer only
-# TODO, Add this under a feature gate
-# TODO, Only tokio::sync::watch channel is used (find individual dependency)
-tokio = { version = "1.0", default-features = false, features = ["sync"] }
+tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
