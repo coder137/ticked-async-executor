@@ -89,7 +89,7 @@ where
 
     pub fn create_timer(&self) -> TickedTimer {
         let tick_recv = self.rx_tick_event.clone();
-        TickedTimer { tick_recv }
+        TickedTimer::new(tick_recv)
     }
 
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {

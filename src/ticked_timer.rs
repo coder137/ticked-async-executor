@@ -1,8 +1,12 @@
 pub struct TickedTimer {
-    pub tick_recv: tokio::sync::watch::Receiver<f64>,
+    tick_recv: tokio::sync::watch::Receiver<f64>,
 }
 
 impl TickedTimer {
+    pub fn new(tick_recv: tokio::sync::watch::Receiver<f64>) -> Self {
+        Self { tick_recv }
+    }
+
     pub async fn sleep_for(mut self, mut duration_in_ms: f64) {
         loop {
             let _r = self.tick_recv.changed().await;
