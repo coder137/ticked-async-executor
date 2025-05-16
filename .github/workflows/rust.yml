@@ -28,11 +28,17 @@ jobs:
         run: |
           cargo clippy
           cargo test
+          cargo test --features tick_event
+          cargo test --features timer_registration
+          cargo test --features tick_event,timer_registration
     
       - name: Build
         run: |
           cargo build
           cargo build --release
+          cargo build --features tick_event
+          cargo build --features timer_registration
+          cargo build --features tick_event,timer_registration
       
       - name: Generate Coverage Report
         if: ${{ matrix.os == 'ubuntu-latest' }}
