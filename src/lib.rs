@@ -16,3 +16,8 @@ pub use ticked_async_executor::*;
 mod ticked_timer_from_tick_event;
 #[cfg(feature = "tick_event")]
 pub use ticked_timer_from_tick_event::*;
+
+#[cfg(feature = "timer_registration")]
+mod ticked_timer_from_timer_registration;
+#[cfg(feature = "timer_registration")]
+pub use ticked_timer_from_timer_registration::*;

@@ -10,7 +10,16 @@ categories = ["asynchronous", "concurrency", "game-development", "simulation"]
 readme = "README.md"
 
 [features]
+# Provides a tick event in the form of a `tokio::sync::watch::Receiver<f64>` as per the `delta` provided 
+# to the `TickedAsyncExecutorTicker::tick` API
+# Also provides a timer implementation: `TickedTimerFromTickEvent`
 tick_event = []
+
+# Timers can be registered with the `TickedAsyncExecutorTicker` via the `TickedAsyncExecutorSpawner`
+# The timers count down with every call to `TickedAsyncExecutorTicker::tick` API as per the delta provided
+# Once the timer has elapsed, the corresponding `tokio::sync::oneshot::*` channel is notified
+# Also provides a timer implementation: `TickedTimerFromTimerRegistration`
+timer_registration = []
 
 [dependencies]
 async-task = "4.7"

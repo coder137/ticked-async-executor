@@ -67,6 +67,11 @@ where
         self.spawner.tick_channel()
     }
 
+    #[cfg(feature = "timer_registration")]
+    pub fn create_timer_from_timer_registration(&self) -> crate::TickedTimerFromTimerRegistration {
+        self.spawner.create_timer_from_timer_registration()
+    }
+
     pub fn wait_till_completed(&mut self, delta: f64) {
         self.ticker.wait_till_completed(delta);
     }
@@ -146,7 +151,7 @@ mod tests {
 
     #[cfg(feature = "tick_event")]
     #[test]
-    fn test_ticked_timer() {
+    fn test_ticked_timer_from_tick_event() {
         use std::time::{Duration, Instant};
 
         let mut executor = TickedAsyncExecutor::default();
@@ -219,6 +224,40 @@ mod tests {
         executor.tick(DELTA, None);
         assert_eq!(executor.num_tasks(), 4);
         drop(executor);
+    }
+
+    #[cfg(feature = "timer_registration")]
+    #[test]
+    fn test_ticked_timer_from_timer_registration() {
+        use std::time::{Duration, Instant};
+
+        let mut executor = TickedAsyncExecutor::default();
+
+        for _ in 0..10 {
+            let timer = executor.create_timer_from_timer_registration();
+            executor
+                .spawn_local("LocalTimer", async move {
+                    timer.sleep_for(256.0).await;
+                })
+                .detach();
+        }
+
+        let now = Instant::now();
+        let mut instances = vec![];
+        while executor.num_tasks() != 0 {
+            let current = Instant::now();
+            executor.tick(DELTA, None);
+            instances.push(current.elapsed());
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        let elapsed = now.elapsed();
+        println!("Elapsed: {:?}", elapsed);
+        println!("Total: {:?}", instances);
+        println!(
+            "Min: {:?}, Max: {:?}",
+            instances.iter().min(),
+            instances.iter().max()
+        );
     }
 
     #[test]

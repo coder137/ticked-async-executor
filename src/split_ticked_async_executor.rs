@@ -40,6 +40,9 @@ impl SplitTickedAsyncExecutor {
         #[cfg(feature = "tick_event")]
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
+        #[cfg(feature = "timer_registration")]
+        let (timer_registration_tx, timer_registration_rx) = mpsc::channel();
+
         let spawner = TickedAsyncExecutorSpawner {
             task_tx,
             num_woken_tasks: num_woken_tasks.clone(),
@@ -47,6 +50,8 @@ impl SplitTickedAsyncExecutor {
             observer: observer.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx,
+            #[cfg(feature = "timer_registration")]
+            timer_registration_tx,
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -55,6 +60,10 @@ impl SplitTickedAsyncExecutor {
             observer,
             #[cfg(feature = "tick_event")]
             tick_event_tx,
+            #[cfg(feature = "timer_registration")]
+            timer_registration_rx,
+            #[cfg(feature = "timer_registration")]
+            timers: Vec::new(),
         };
         (spawner, ticker)
     }
@@ -72,6 +81,8 @@ pub struct TickedAsyncExecutorSpawner<O> {
 
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
+    #[cfg(feature = "timer_registration")]
+    timer_registration_tx: mpsc::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -96,13 +107,17 @@ where
 
     #[cfg(feature = "tick_event")]
     pub fn create_timer_from_tick_event(&self) -> crate::TickedTimerFromTickEvent {
-        let tick_recv = self.tick_event_rx.clone();
-        crate::TickedTimerFromTickEvent::new(tick_recv)
+        crate::TickedTimerFromTickEvent::new(self.tick_event_rx.clone())
     }
 
     #[cfg(feature = "tick_event")]
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
         self.tick_event_rx.clone()
+    }
+
+    #[cfg(feature = "timer_registration")]
+    pub fn create_timer_from_timer_registration(&self) -> crate::TickedTimerFromTimerRegistration {
+        crate::TickedTimerFromTimerRegistration::new(self.timer_registration_tx.clone())
     }
 
     pub fn num_tasks(&self) -> usize {
@@ -151,6 +166,11 @@ pub struct TickedAsyncExecutorTicker<O> {
 
     #[cfg(feature = "tick_event")]
     tick_event_tx: tokio::sync::watch::Sender<f64>,
+
+    #[cfg(feature = "timer_registration")]
+    timer_registration_rx: mpsc::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
+    #[cfg(feature = "timer_registration")]
+    timers: Vec<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
@@ -160,6 +180,9 @@ where
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
         #[cfg(feature = "tick_event")]
         let _r = self.tick_event_tx.send(delta);
+
+        #[cfg(feature = "timer_registration")]
+        self.timer_registration_tick(delta);
 
         let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
         if let Some(limit) = limit {
@@ -182,5 +205,25 @@ where
         while self.num_spawned_tasks.load(Ordering::Relaxed) != 0 {
             self.tick(constant_delta, None);
         }
+    }
+
+    #[cfg(feature = "timer_registration")]
+    fn timer_registration_tick(&mut self, delta: f64) {
+        // Get new timers
+        let mut new_timers = self.timer_registration_rx.try_iter().collect::<Vec<_>>();
+        self.timers.append(&mut new_timers);
+
+        // Countdown timers
+        self.timers.iter_mut().for_each(|(elapsed, _)| {
+            *elapsed -= delta;
+        });
+
+        // Extract timers that have elapsed
+        // Notify corresponding channels
+        self.timers
+            .extract_if(.., |(elapsed, _)| *elapsed <= 0.0)
+            .for_each(|(_, rx)| {
+                let _ignore = rx.send(());
+            });
     }
 }
