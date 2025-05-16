@@ -75,7 +75,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     const DELTA: f64 = 1000.0 / 60.0;
 
@@ -148,6 +147,8 @@ mod tests {
     #[cfg(feature = "tick_event")]
     #[test]
     fn test_ticked_timer() {
+        use std::time::{Duration, Instant};
+
         let mut executor = TickedAsyncExecutor::default();
 
         for _ in 0..10 {
