@@ -7,6 +7,9 @@ fn ticked_async_executor_benchmark(c: &mut Criterion) {
 
     #[cfg(feature = "tick_event")]
     timer_from_tick_event_benchmark(c);
+
+    #[cfg(feature = "timer_registration")]
+    timer_from_timer_registration_benchmark(c);
 }
 
 fn spawn_tasks_benchmark(c: &mut Criterion) {
@@ -72,8 +75,8 @@ fn timer_from_tick_event_benchmark(c: &mut Criterion) {
     c.bench_function("Spawn 1 timer from tick event", |b| {
         b.iter_with_large_drop(|| {
             let mut executor = TickedAsyncExecutor::default();
-            let timer = executor.create_timer_from_tick_event();
 
+            let timer = executor.create_timer_from_tick_event();
             executor
                 .spawn_local("empty", async move {
                     timer.sleep_for(1.0).await;
@@ -98,9 +101,44 @@ fn timer_from_tick_event_benchmark(c: &mut Criterion) {
                     .detach();
             }
 
-            for _ in 0..11 {
-                executor.tick(0.1, None);
+            executor.wait_till_completed(0.1);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+}
+
+#[cfg(feature = "timer_registration")]
+fn timer_from_timer_registration_benchmark(c: &mut Criterion) {
+    c.bench_function("Spawn 1 timer from timer registration", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+
+            let timer = executor.create_timer_from_timer_registration();
+            executor
+                .spawn_local("empty", async move {
+                    timer.sleep_for(1.0).await;
+                })
+                .detach();
+
+            executor.wait_till_completed(0.1);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+
+    c.bench_function("Spawn 1000 timers from timer registration", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+
+            for _ in 0..1000 {
+                let timer = executor.create_timer_from_timer_registration();
+                executor
+                    .spawn_local("empty", async move {
+                        timer.sleep_for(1.0).await;
+                    })
+                    .detach();
             }
+
+            executor.wait_till_completed(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
