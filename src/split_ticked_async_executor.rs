@@ -95,7 +95,7 @@ where
     }
 
     #[cfg(feature = "tick_event")]
-    pub fn create_timer(&self) -> crate::TickedTimerFromTickEvent {
+    pub fn create_timer_from_tick_event(&self) -> crate::TickedTimerFromTickEvent {
         let tick_recv = self.tick_event_rx.clone();
         crate::TickedTimerFromTickEvent::new(tick_recv)
     }

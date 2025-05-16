@@ -58,8 +58,8 @@ where
     }
 
     #[cfg(feature = "tick_event")]
-    pub fn create_timer(&self) -> crate::TickedTimerFromTickEvent {
-        self.spawner.create_timer()
+    pub fn create_timer_from_tick_event(&self) -> crate::TickedTimerFromTickEvent {
+        self.spawner.create_timer_from_tick_event()
     }
 
     #[cfg(feature = "tick_event")]
@@ -152,7 +152,7 @@ mod tests {
         let mut executor = TickedAsyncExecutor::default();
 
         for _ in 0..10 {
-            let timer = executor.create_timer();
+            let timer = executor.create_timer_from_tick_event();
             executor
                 .spawn_local("LocalTimer", async move {
                     timer.sleep_for(256.0).await;
@@ -178,14 +178,14 @@ mod tests {
         );
 
         // Test Timer cancellation
-        let timer = executor.create_timer();
+        let timer = executor.create_timer_from_tick_event();
         executor
             .spawn_local("LocalFuture1", async move {
                 timer.sleep_for(1000.0).await;
             })
             .detach();
 
-        let timer = executor.create_timer();
+        let timer = executor.create_timer_from_tick_event();
         executor
             .spawn_local("LocalFuture2", async move {
                 timer.sleep_for(1000.0).await;
