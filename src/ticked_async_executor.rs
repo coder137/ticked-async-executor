@@ -2,7 +2,7 @@ use std::future::Future;
 
 use crate::{
     SplitTickedAsyncExecutor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorSpawner,
-    TickedAsyncExecutorTicker, TickedTimer,
+    TickedAsyncExecutorTicker,
 };
 
 pub struct TickedAsyncExecutor<O> {
@@ -53,19 +53,21 @@ where
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
-    pub fn tick(&self, delta: f64, limit: Option<usize>) {
+    pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
         self.ticker.tick(delta, limit);
     }
 
-    pub fn create_timer(&self) -> TickedTimer {
+    #[cfg(feature = "tick_event")]
+    pub fn create_timer(&self) -> crate::TickedTimerFromTickEvent {
         self.spawner.create_timer()
     }
 
+    #[cfg(feature = "tick_event")]
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
         self.spawner.tick_channel()
     }
 
-    pub fn wait_till_completed(&self, delta: f64) {
+    pub fn wait_till_completed(&mut self, delta: f64) {
         self.ticker.wait_till_completed(delta);
     }
 }
@@ -82,7 +84,7 @@ mod tests {
         const DELTA: f64 = 1.0 / 60.0;
         const LIMIT: Option<usize> = None;
 
-        let executor = TickedAsyncExecutor::default();
+        let mut executor = TickedAsyncExecutor::default();
 
         executor.spawn_local("MyIdentifier", async move {}).detach();
 
@@ -93,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_multiple_tasks() {
-        let executor = TickedAsyncExecutor::default();
+        let mut executor = TickedAsyncExecutor::default();
         executor
             .spawn_local("A", async move {
                 tokio::task::yield_now().await;
@@ -115,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_task_cancellation() {
-        let executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
+        let mut executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
         let task1 = executor.spawn_local("A", async move {
             loop {
                 tokio::task::yield_now().await;
@@ -143,9 +145,10 @@ mod tests {
         executor.wait_till_completed(DELTA);
     }
 
+    #[cfg(feature = "tick_event")]
     #[test]
     fn test_ticked_timer() {
-        let executor = TickedAsyncExecutor::default();
+        let mut executor = TickedAsyncExecutor::default();
 
         for _ in 0..10 {
             let timer = executor.create_timer();
@@ -219,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_limit() {
-        let executor = TickedAsyncExecutor::default();
+        let mut executor = TickedAsyncExecutor::default();
         for i in 0..10 {
             executor
                 .spawn_local(format!("{i}"), async move {

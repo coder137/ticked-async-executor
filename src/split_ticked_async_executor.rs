@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskIdentifier, TickedTimer};
+use crate::{DroppableFuture, TaskIdentifier};
 
 #[derive(Debug)]
 pub enum TaskState {
@@ -36,20 +36,25 @@ impl SplitTickedAsyncExecutor {
         let (tx_channel, rx_channel) = mpsc::channel();
         let num_woken_tasks = Arc::new(AtomicUsize::new(0));
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
-        let (tx_tick_event, rx_tick_event) = tokio::sync::watch::channel(1.0);
+
+        #[cfg(feature = "tick_event")]
+        let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
+
         let spawner = TickedAsyncExecutorSpawner {
             tx_channel,
             num_woken_tasks: num_woken_tasks.clone(),
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
-            rx_tick_event,
+            #[cfg(feature = "tick_event")]
+            tick_event_rx,
         };
         let ticker = TickedAsyncExecutorTicker {
             rx_channel,
             num_woken_tasks,
             num_spawned_tasks,
             observer,
-            tx_tick_event,
+            #[cfg(feature = "tick_event")]
+            tick_event_tx,
         };
         (spawner, ticker)
     }
@@ -64,7 +69,9 @@ pub struct TickedAsyncExecutorSpawner<O> {
     // Broadcast recv channel should be notified when there are new messages in the queue
     // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
-    rx_tick_event: tokio::sync::watch::Receiver<f64>,
+
+    #[cfg(feature = "tick_event")]
+    tick_event_rx: tokio::sync::watch::Receiver<f64>,
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -87,13 +94,15 @@ where
         task
     }
 
-    pub fn create_timer(&self) -> TickedTimer {
-        let tick_recv = self.rx_tick_event.clone();
-        TickedTimer::new(tick_recv)
+    #[cfg(feature = "tick_event")]
+    pub fn create_timer(&self) -> crate::TickedTimerFromTickEvent {
+        let tick_recv = self.tick_event_rx.clone();
+        crate::TickedTimerFromTickEvent::new(tick_recv)
     }
 
+    #[cfg(feature = "tick_event")]
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
-        self.rx_tick_event.clone()
+        self.tick_event_rx.clone()
     }
 
     pub fn num_tasks(&self) -> usize {
@@ -139,15 +148,18 @@ pub struct TickedAsyncExecutorTicker<O> {
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
-    tx_tick_event: tokio::sync::watch::Sender<f64>,
+
+    #[cfg(feature = "tick_event")]
+    tick_event_tx: tokio::sync::watch::Sender<f64>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Fn(TaskState),
 {
-    pub fn tick(&self, delta: f64, limit: Option<usize>) {
-        let _r = self.tx_tick_event.send(delta);
+    pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
+        #[cfg(feature = "tick_event")]
+        let _r = self.tick_event_tx.send(delta);
 
         let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
         if let Some(limit) = limit {
@@ -166,7 +178,7 @@ where
             .fetch_sub(num_woken_tasks, Ordering::Relaxed);
     }
 
-    pub fn wait_till_completed(&self, constant_delta: f64) {
+    pub fn wait_till_completed(&mut self, constant_delta: f64) {
         while self.num_spawned_tasks.load(Ordering::Relaxed) != 0 {
             self.tick(constant_delta, None);
         }

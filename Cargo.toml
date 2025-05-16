@@ -1,6 +1,6 @@
 [package]
 name = "ticked_async_executor"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["coder137"]
 edition = "2021"
 description = "Local executor that runs woken async tasks when it is ticked"
@@ -8,6 +8,9 @@ license = "Apache-2.0"
 repository = "https://github.com/coder137/ticked-async-executor"
 categories = ["asynchronous", "concurrency", "game-development", "simulation"]
 readme = "README.md"
+
+[features]
+tick_event = []
 
 [dependencies]
 async-task = "4.7"

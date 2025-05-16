@@ -2,6 +2,8 @@
 
 Async Local Executor which executes woken tasks only when it is ticked
 
+MSRV: 1.87
+
 # Usage
 
 ## Default Local Executor
@@ -11,7 +13,7 @@ use ticked_async_executor::*;
 
 const DELTA: f64 = 1000.0 / 60.0;
 
-let executor = TickedAsyncExecutor::default();
+let mut executor = TickedAsyncExecutor::default();
 
 executor.spawn_local("MyIdentifier", async move {}).detach();
 
@@ -28,7 +30,7 @@ use ticked_async_executor::*;
 
 const DELTA: f64 = 1000.0 / 60.0;
 
-let (spawner, ticker) = SplitTickedAsyncExecutor::default();
+let (spawner, mut ticker) = SplitTickedAsyncExecutor::default();
 
 spawner.spawn_local("MyIdentifier", async move {}).detach();
 
@@ -45,7 +47,7 @@ use ticked_async_executor::*;
 
 const DELTA: f64 = 1000.0 / 60.0;
 
-let executor = TickedAsyncExecutor::default();
+let mut executor = TickedAsyncExecutor::default();
 
 executor.spawn_local("MyIdentifier1", async move {}).detach();
 executor.spawn_local("MyIdentifier2", async move {}).detach();
