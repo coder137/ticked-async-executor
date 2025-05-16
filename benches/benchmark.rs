@@ -2,8 +2,15 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 use ticked_async_executor::TickedAsyncExecutor;
 
+fn ticked_async_executor_benchmark(c: &mut Criterion) {
+    spawn_tasks_benchmark(c);
+
+    #[cfg(feature = "tick_event")]
+    timer_from_tick_event_benchmark(c);
+}
+
 fn spawn_tasks_benchmark(c: &mut Criterion) {
-    c.bench_function("1 task", |b| {
+    c.bench_function("Spawn 1 task", |b| {
         b.iter_with_large_drop(|| {
             let mut executor = TickedAsyncExecutor::default();
             executor.spawn_local("empty", async move {}).detach();
@@ -12,7 +19,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("2 tasks", |b| {
+    c.bench_function("Spawn 2 tasks", |b| {
         b.iter_with_large_drop(|| {
             let mut executor = TickedAsyncExecutor::default();
             executor.spawn_local("empty1", async move {}).detach();
@@ -22,7 +29,82 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
             assert_eq!(executor.num_tasks(), 0);
         });
     });
+
+    c.bench_function("Spawn 100 tasks", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+            for _ in 0..100 {
+                executor.spawn_local("_", async move {}).detach();
+            }
+
+            executor.tick(0.1, None);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+
+    c.bench_function("Spawn 1000 tasks", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+            for _ in 0..1000 {
+                executor.spawn_local("_", async move {}).detach();
+            }
+
+            executor.tick(0.1, None);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+
+    c.bench_function("Spawn 10000 tasks", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+            for _ in 0..10000 {
+                executor.spawn_local("_", async move {}).detach();
+            }
+
+            executor.tick(0.1, None);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
 }
 
-criterion_group!(benches, spawn_tasks_benchmark);
+#[cfg(feature = "tick_event")]
+fn timer_from_tick_event_benchmark(c: &mut Criterion) {
+    c.bench_function("Spawn 1 timer from tick event", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+            let timer = executor.create_timer_from_tick_event();
+
+            executor
+                .spawn_local("empty", async move {
+                    timer.sleep_for(1.0).await;
+                })
+                .detach();
+
+            executor.wait_till_completed(0.1);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+
+    c.bench_function("Spawn 1000 timers from tick event", |b| {
+        b.iter_with_large_drop(|| {
+            let mut executor = TickedAsyncExecutor::default();
+
+            for _ in 0..1000 {
+                let timer = executor.create_timer_from_tick_event();
+                executor
+                    .spawn_local("empty", async move {
+                        timer.sleep_for(1.0).await;
+                    })
+                    .detach();
+            }
+
+            for _ in 0..11 {
+                executor.tick(0.1, None);
+            }
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+}
+
+criterion_group!(benches, ticked_async_executor_benchmark);
 criterion_main!(benches);
