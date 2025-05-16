@@ -33,7 +33,7 @@ impl SplitTickedAsyncExecutor {
     where
         O: Fn(TaskState) + Clone + Send + Sync + 'static,
     {
-        let (tx_channel, rx_channel) = mpsc::channel();
+        let (task_tx, task_rx) = mpsc::channel();
         let num_woken_tasks = Arc::new(AtomicUsize::new(0));
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
 
@@ -41,7 +41,7 @@ impl SplitTickedAsyncExecutor {
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
         let spawner = TickedAsyncExecutorSpawner {
-            tx_channel,
+            task_tx,
             num_woken_tasks: num_woken_tasks.clone(),
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
@@ -49,7 +49,7 @@ impl SplitTickedAsyncExecutor {
             tick_event_rx,
         };
         let ticker = TickedAsyncExecutorTicker {
-            rx_channel,
+            task_rx,
             num_woken_tasks,
             num_spawned_tasks,
             observer,
@@ -61,7 +61,7 @@ impl SplitTickedAsyncExecutor {
 }
 
 pub struct TickedAsyncExecutorSpawner<O> {
-    tx_channel: mpsc::Sender<Payload>,
+    task_tx: mpsc::Sender<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
 
     num_spawned_tasks: Arc<AtomicUsize>,
@@ -132,7 +132,7 @@ where
     }
 
     fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
-        let sender = self.tx_channel.clone();
+        let sender = self.task_tx.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();
         move |runnable| {
@@ -144,7 +144,7 @@ where
 }
 
 pub struct TickedAsyncExecutorTicker<O> {
-    rx_channel: mpsc::Receiver<Payload>,
+    task_rx: mpsc::Receiver<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
@@ -167,7 +167,7 @@ where
             num_woken_tasks = num_woken_tasks.min(limit);
         }
 
-        self.rx_channel
+        self.task_rx
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
