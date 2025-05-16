@@ -210,10 +210,14 @@ where
     #[cfg(feature = "timer_registration")]
     fn timer_registration_tick(&mut self, delta: f64) {
         // Get new timers
-        let mut new_timers = self.timer_registration_rx.try_iter().collect::<Vec<_>>();
-        self.timers.append(&mut new_timers);
+        self.timer_registration_rx.try_iter().for_each(|timer| {
+            self.timers.push(timer);
+        });
 
         // Countdown timers
+        if self.timers.is_empty() {
+            return;
+        }
         self.timers.iter_mut().for_each(|(elapsed, _)| {
             *elapsed -= delta;
         });
