@@ -115,19 +115,19 @@ assert_eq!(executor.num_tasks(), 0);
 # Benchmarks
 
 - `executor.spawn_local`
-```
+```text
 Spawn 10000 tasks
 time:   [1.3711 ms 1.3713 ms 1.3715 ms]
 ```
 
 - `executor.create_timer_from_timer_registration` under feature `timer_registration`
-```
+```text
 Spawn 1000 timers from timer registration
 time:   [336.10 µs 336.42 µs 336.93 µs]
 ```
 
 - `executor.create_timer_from_tick_event` under feature `tick_event`
-```
+```text
 Spawn 1000 timers from tick event
 time:   [1.5688 ms 1.5692 ms 1.5697 ms]
 ```
