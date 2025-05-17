@@ -4,7 +4,7 @@ const DELTA: f64 = 1000.0 / 60.0;
 
 #[test]
 fn test_tokio_join() {
-    let executor = TickedAsyncExecutor::default();
+    let mut executor = TickedAsyncExecutor::default();
 
     let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
     let (tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);
@@ -41,7 +41,7 @@ fn test_tokio_join() {
 
 #[test]
 fn test_tokio_select() {
-    let executor = TickedAsyncExecutor::default();
+    let mut executor = TickedAsyncExecutor::default();
 
     let (tx1, mut rx1) = tokio::sync::mpsc::channel::<usize>(1);
     let (_tx2, mut rx2) = tokio::sync::mpsc::channel::<usize>(1);

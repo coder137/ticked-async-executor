@@ -17,7 +17,10 @@ jobs:
             os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Rust Toolchain Setup
+        uses: dtolnay/rust-toolchain@1.87.0
 
       - name: Install
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -26,18 +29,32 @@ jobs:
 
       - name: Test
         run: |
+          rustup component add clippy
           cargo clippy
           cargo test
-    
+          cargo test --features tick_event
+          cargo test --features timer_registration
+          cargo test --features tick_event,timer_registration
+
+      - name: Bench
+        run: |
+          cargo bench
+          cargo bench --features tick_event
+          cargo bench --features timer_registration
+          cargo bench --features tick_event,timer_registration
+
       - name: Build
         run: |
           cargo build
           cargo build --release
+          cargo build --features tick_event
+          cargo build --features timer_registration
+          cargo build --features tick_event,timer_registration
       
       - name: Generate Coverage Report
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
-          cargo tarpaulin --engine llvm --out xml --output-dir target
+          cargo tarpaulin --engine llvm --out xml --output-dir target --all-features
 
       - name: Upload coverage reports to Codecov
         if: ${{ matrix.os == 'ubuntu-latest' }}

@@ -1,6 +1,6 @@
 [package]
 name = "ticked_async_executor"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["coder137"]
 edition = "2021"
 description = "Local executor that runs woken async tasks when it is ticked"
@@ -9,6 +9,18 @@ repository = "https://github.com/coder137/ticked-async-executor"
 categories = ["asynchronous", "concurrency", "game-development", "simulation"]
 readme = "README.md"
 
+[features]
+# Provides a tick event in the form of a `tokio::sync::watch::Receiver<f64>` as per the `delta` provided 
+# to the `TickedAsyncExecutorTicker::tick` API
+# Also provides a timer implementation: `TickedTimerFromTickEvent`
+tick_event = []
+
+# Timers can be registered with the `TickedAsyncExecutorTicker` via the `TickedAsyncExecutorSpawner`
+# The timers count down with every call to `TickedAsyncExecutorTicker::tick` API as per the delta provided
+# Once the timer has elapsed, the corresponding `tokio::sync::oneshot::*` channel is notified
+# Also provides a timer implementation: `TickedTimerFromTimerRegistration`
+timer_registration = []
+
 [dependencies]
 async-task = "4.7"
 pin-project = "1"
@@ -16,3 +28,8 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+criterion = "0.5"
+
+[[bench]]
+name = "benchmark"
+harness = false

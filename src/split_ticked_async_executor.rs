@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskIdentifier, TickedTimer};
+use crate::{DroppableFuture, TaskIdentifier};
 
 #[derive(Debug)]
 pub enum TaskState {
@@ -33,30 +33,44 @@ impl SplitTickedAsyncExecutor {
     where
         O: Fn(TaskState) + Clone + Send + Sync + 'static,
     {
-        let (tx_channel, rx_channel) = mpsc::channel();
+        let (task_tx, task_rx) = mpsc::channel();
         let num_woken_tasks = Arc::new(AtomicUsize::new(0));
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
-        let (tx_tick_event, rx_tick_event) = tokio::sync::watch::channel(1.0);
+
+        #[cfg(feature = "tick_event")]
+        let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
+
+        #[cfg(feature = "timer_registration")]
+        let (timer_registration_tx, timer_registration_rx) = mpsc::channel();
+
         let spawner = TickedAsyncExecutorSpawner {
-            tx_channel,
+            task_tx,
             num_woken_tasks: num_woken_tasks.clone(),
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
-            rx_tick_event,
+            #[cfg(feature = "tick_event")]
+            tick_event_rx,
+            #[cfg(feature = "timer_registration")]
+            timer_registration_tx,
         };
         let ticker = TickedAsyncExecutorTicker {
-            rx_channel,
+            task_rx,
             num_woken_tasks,
             num_spawned_tasks,
             observer,
-            tx_tick_event,
+            #[cfg(feature = "tick_event")]
+            tick_event_tx,
+            #[cfg(feature = "timer_registration")]
+            timer_registration_rx,
+            #[cfg(feature = "timer_registration")]
+            timers: Vec::new(),
         };
         (spawner, ticker)
     }
 }
 
 pub struct TickedAsyncExecutorSpawner<O> {
-    tx_channel: mpsc::Sender<Payload>,
+    task_tx: mpsc::Sender<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
 
     num_spawned_tasks: Arc<AtomicUsize>,
@@ -64,7 +78,11 @@ pub struct TickedAsyncExecutorSpawner<O> {
     // Broadcast recv channel should be notified when there are new messages in the queue
     // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
-    rx_tick_event: tokio::sync::watch::Receiver<f64>,
+
+    #[cfg(feature = "tick_event")]
+    tick_event_rx: tokio::sync::watch::Receiver<f64>,
+    #[cfg(feature = "timer_registration")]
+    timer_registration_tx: mpsc::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -87,13 +105,19 @@ where
         task
     }
 
-    pub fn create_timer(&self) -> TickedTimer {
-        let tick_recv = self.rx_tick_event.clone();
-        TickedTimer::new(tick_recv)
+    #[cfg(feature = "tick_event")]
+    pub fn create_timer_from_tick_event(&self) -> crate::TickedTimerFromTickEvent {
+        crate::TickedTimerFromTickEvent::new(self.tick_event_rx.clone())
     }
 
+    #[cfg(feature = "tick_event")]
     pub fn tick_channel(&self) -> tokio::sync::watch::Receiver<f64> {
-        self.rx_tick_event.clone()
+        self.tick_event_rx.clone()
+    }
+
+    #[cfg(feature = "timer_registration")]
+    pub fn create_timer_from_timer_registration(&self) -> crate::TickedTimerFromTimerRegistration {
+        crate::TickedTimerFromTimerRegistration::new(self.timer_registration_tx.clone())
     }
 
     pub fn num_tasks(&self) -> usize {
@@ -123,7 +147,7 @@ where
     }
 
     fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
-        let sender = self.tx_channel.clone();
+        let sender = self.task_tx.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();
         move |runnable| {
@@ -135,19 +159,30 @@ where
 }
 
 pub struct TickedAsyncExecutorTicker<O> {
-    rx_channel: mpsc::Receiver<Payload>,
+    task_rx: mpsc::Receiver<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
-    tx_tick_event: tokio::sync::watch::Sender<f64>,
+
+    #[cfg(feature = "tick_event")]
+    tick_event_tx: tokio::sync::watch::Sender<f64>,
+
+    #[cfg(feature = "timer_registration")]
+    timer_registration_rx: mpsc::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
+    #[cfg(feature = "timer_registration")]
+    timers: Vec<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Fn(TaskState),
 {
-    pub fn tick(&self, delta: f64, limit: Option<usize>) {
-        let _r = self.tx_tick_event.send(delta);
+    pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
+        #[cfg(feature = "tick_event")]
+        let _r = self.tick_event_tx.send(delta);
+
+        #[cfg(feature = "timer_registration")]
+        self.timer_registration_tick(delta);
 
         let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
         if let Some(limit) = limit {
@@ -155,7 +190,7 @@ where
             num_woken_tasks = num_woken_tasks.min(limit);
         }
 
-        self.rx_channel
+        self.task_rx
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
@@ -166,9 +201,33 @@ where
             .fetch_sub(num_woken_tasks, Ordering::Relaxed);
     }
 
-    pub fn wait_till_completed(&self, constant_delta: f64) {
+    pub fn wait_till_completed(&mut self, constant_delta: f64) {
         while self.num_spawned_tasks.load(Ordering::Relaxed) != 0 {
             self.tick(constant_delta, None);
         }
+    }
+
+    #[cfg(feature = "timer_registration")]
+    fn timer_registration_tick(&mut self, delta: f64) {
+        // Get new timers
+        self.timer_registration_rx.try_iter().for_each(|timer| {
+            self.timers.push(timer);
+        });
+
+        // Countdown timers
+        if self.timers.is_empty() {
+            return;
+        }
+        self.timers.iter_mut().for_each(|(elapsed, _)| {
+            *elapsed -= delta;
+        });
+
+        // Extract timers that have elapsed
+        // Notify corresponding channels
+        self.timers
+            .extract_if(.., |(elapsed, _)| *elapsed <= 0.0)
+            .for_each(|(_, rx)| {
+                let _ignore = rx.send(());
+            });
     }
 }
