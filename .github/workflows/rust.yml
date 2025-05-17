@@ -29,6 +29,7 @@ jobs:
 
       - name: Test
         run: |
+          rustup component add clippy
           cargo clippy
           cargo test
           cargo test --features tick_event
