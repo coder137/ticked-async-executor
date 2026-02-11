@@ -161,6 +161,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
 
 impl TickedAsyncExecutorDelta {
