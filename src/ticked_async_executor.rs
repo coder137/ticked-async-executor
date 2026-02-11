@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use crate::{
-    SplitTickedAsyncExecutor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorSpawner,
-    TickedAsyncExecutorTicker,
+    SplitTickedAsyncExecutor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorDelta,
+    TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker,
 };
 
 pub struct TickedAsyncExecutor<O> {
@@ -38,6 +38,10 @@ where
 
     pub fn num_tasks(&self) -> usize {
         self.spawner.num_tasks()
+    }
+
+    pub fn delta(&self) -> TickedAsyncExecutorDelta {
+        self.ticker.delta()
     }
 
     /// Run the woken tasks once
@@ -85,7 +89,6 @@ mod tests {
 
     #[test]
     fn test_one_task() {
-        const DELTA: f64 = 1.0 / 60.0;
         const LIMIT: Option<usize> = None;
 
         let mut executor = TickedAsyncExecutor::default();
@@ -147,6 +150,34 @@ mod tests {
 
         // Since we have cancelled the tasks above, the loops should eventually end
         executor.wait_till_completed(DELTA);
+    }
+
+    #[test]
+    fn test_delta() {
+        const LIMIT: Option<usize> = None;
+        const DELTAS: &[f64] = &[10.23, 16.67, 20.11, 45.22, 17.09];
+
+        let mut executor = TickedAsyncExecutor::default();
+
+        let delta = executor.delta();
+
+        executor
+            .spawn_local("MyIdentifier", async move {
+                for (index, match_delta) in DELTAS.iter().enumerate() {
+                    let current_delta = delta.get();
+                    assert_eq!(current_delta, *match_delta);
+                    if index < DELTAS.len() - 1 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+            })
+            .detach();
+
+        // Make sure to tick your executor to run the tasks
+        for delta in DELTAS {
+            executor.tick(*delta, LIMIT);
+        }
+        assert_eq!(executor.num_tasks(), 0);
     }
 
     #[cfg(feature = "tick_event")]

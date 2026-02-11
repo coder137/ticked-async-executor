@@ -1,5 +1,7 @@
 use std::{
+    cell::Cell,
     future::Future,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
@@ -58,6 +60,7 @@ impl SplitTickedAsyncExecutor {
             num_woken_tasks,
             num_spawned_tasks,
             observer,
+            delta: Rc::new(0.0.into()),
             #[cfg(feature = "tick_event")]
             tick_event_tx,
             #[cfg(feature = "timer_registration")]
@@ -158,11 +161,20 @@ where
     }
 }
 
+pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
+
+impl TickedAsyncExecutorDelta {
+    pub fn get(&self) -> f64 {
+        self.0.get()
+    }
+}
+
 pub struct TickedAsyncExecutorTicker<O> {
     task_rx: mpsc::Receiver<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
+    delta: Rc<Cell<f64>>,
 
     #[cfg(feature = "tick_event")]
     tick_event_tx: tokio::sync::watch::Sender<f64>,
@@ -177,7 +189,13 @@ impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Fn(TaskState),
 {
+    pub fn delta(&self) -> TickedAsyncExecutorDelta {
+        TickedAsyncExecutorDelta(self.delta.clone())
+    }
+
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
+        self.delta.replace(delta);
+
         #[cfg(feature = "tick_event")]
         let _r = self.tick_event_tx.send(delta);
 
