@@ -168,6 +168,10 @@ impl TickedAsyncExecutorDelta {
     pub fn get(&self) -> f64 {
         self.0.get()
     }
+
+    pub fn inner(self) -> Rc<Cell<f64>> {
+        self.0
+    }
 }
 
 pub struct TickedAsyncExecutorTicker<O> {
