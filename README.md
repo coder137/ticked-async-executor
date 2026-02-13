@@ -2,8 +2,6 @@
 
 Async Local Executor which executes woken tasks only when it is ticked
 
-MSRV: 1.87
-
 # Usage
 
 ## Default Local Executor

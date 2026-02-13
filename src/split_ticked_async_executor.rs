@@ -131,7 +131,7 @@ where
         &self,
         identifier: TaskIdentifier,
         future: F,
-    ) -> DroppableFuture<F, impl Fn()>
+    ) -> DroppableFuture<F, impl Fn() + use<F, O>>
     where
         F: Future,
     {
@@ -149,7 +149,10 @@ where
         })
     }
 
-    fn runnable_schedule_cb(&self, identifier: TaskIdentifier) -> impl Fn(async_task::Runnable) {
+    fn runnable_schedule_cb(
+        &self,
+        identifier: TaskIdentifier,
+    ) -> impl Fn(async_task::Runnable) + use<O> {
         let sender = self.task_tx.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();

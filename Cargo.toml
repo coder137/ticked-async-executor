@@ -2,7 +2,7 @@
 name = "ticked_async_executor"
 version = "0.3.1"
 authors = ["coder137"]
-edition = "2021"
+edition = "2024"
 description = "Local executor that runs woken async tasks when it is ticked"
 license = "Apache-2.0"
 repository = "https://github.com/coder137/ticked-async-executor"

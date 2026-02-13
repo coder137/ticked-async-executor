@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Rust Toolchain Setup
-        uses: dtolnay/rust-toolchain@1.87.0
+        uses: dtolnay/rust-toolchain@1.93.1
 
       - name: Install
         if: ${{ matrix.os == 'ubuntu-latest' }}
