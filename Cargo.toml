@@ -1,8 +1,8 @@
 [package]
 name = "ticked_async_executor"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["coder137"]
-edition = "2021"
+edition = "2024"
 description = "Local executor that runs woken async tasks when it is ticked"
 license = "Apache-2.0"
 repository = "https://github.com/coder137/ticked-async-executor"
@@ -28,7 +28,7 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-criterion = "0.5"
+criterion = "0.8"
 
 [[bench]]
 name = "benchmark"

@@ -2,8 +2,6 @@
 
 Async Local Executor which executes woken tasks only when it is ticked
 
-MSRV: 1.87
-
 # Usage
 
 ## Default Local Executor
@@ -142,4 +140,3 @@ time:   [1.5688 ms 1.5692 ms 1.5697 ms]
 - [x] TickedAsyncExecutor
 - [x] SplitTickedAsyncExecutor
   - Similar to the channel API, but spawner and ticker cannot be moved to different threads 
-- [ ] Tracing
