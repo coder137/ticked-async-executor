@@ -3,8 +3,9 @@ use std::{
     future::Future,
     rc::Rc,
     sync::{
+        Arc,
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
 };
 
