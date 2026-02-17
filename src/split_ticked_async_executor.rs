@@ -42,7 +42,7 @@ impl SplitTickedAsyncExecutor {
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
         #[cfg(feature = "timer_registration")]
-        let (timer_registration_tx, timer_registration_rx) = mpsc::channel();
+        let (timer_registration_tx, timer_registration_rx) = flume::unbounded();
 
         let spawner = TickedAsyncExecutorSpawner {
             task_tx,
@@ -81,7 +81,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
-    timer_registration_tx: mpsc::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_tx: flume::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -181,7 +181,7 @@ pub struct TickedAsyncExecutorTicker<O> {
     tick_event_tx: tokio::sync::watch::Sender<f64>,
 
     #[cfg(feature = "timer_registration")]
-    timer_registration_rx: mpsc::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_rx: flume::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
     #[cfg(feature = "timer_registration")]
     timers: Vec<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
