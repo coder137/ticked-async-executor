@@ -5,7 +5,6 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
-        mpsc,
     },
 };
 
@@ -36,7 +35,7 @@ impl SplitTickedAsyncExecutor {
     where
         O: Fn(TaskState) + Clone + Send + Sync + 'static,
     {
-        let (task_tx, task_rx) = mpsc::channel();
+        let (task_tx, task_rx) = flume::unbounded();
         let num_woken_tasks = Arc::new(AtomicUsize::new(0));
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
 
@@ -74,7 +73,7 @@ impl SplitTickedAsyncExecutor {
 }
 
 pub struct TickedAsyncExecutorSpawner<O> {
-    task_tx: mpsc::Sender<Payload>,
+    task_tx: flume::Sender<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
 
     num_spawned_tasks: Arc<AtomicUsize>,
@@ -154,11 +153,11 @@ where
         &self,
         identifier: TaskIdentifier,
     ) -> impl Fn(async_task::Runnable) + use<O> {
-        let sender = self.task_tx.clone();
+        let task_tx = self.task_tx.clone();
         let num_woken_tasks = self.num_woken_tasks.clone();
         let observer = self.observer.clone();
         move |runnable| {
-            sender.send((identifier.clone(), runnable)).unwrap_or(());
+            task_tx.send((identifier.clone(), runnable)).unwrap_or(());
             num_woken_tasks.fetch_add(1, Ordering::Relaxed);
             observer(TaskState::Wake(identifier.clone()));
         }
@@ -179,7 +178,7 @@ impl TickedAsyncExecutorDelta {
 }
 
 pub struct TickedAsyncExecutorTicker<O> {
-    task_rx: mpsc::Receiver<Payload>,
+    task_rx: flume::Receiver<Payload>,
     num_woken_tasks: Arc<AtomicUsize>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
