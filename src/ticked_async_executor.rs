@@ -303,6 +303,7 @@ mod tests {
         }
 
         for i in 0..10 {
+            println!("Tick {i}");
             let num_tasks = executor.num_tasks();
             assert_eq!(num_tasks, 10 - i);
             executor.tick(0.1, Some(1));

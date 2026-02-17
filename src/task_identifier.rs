@@ -3,8 +3,15 @@ use std::sync::Arc;
 /// Cheaply clonable TaskIdentifier
 #[derive(Debug, Clone)]
 pub enum TaskIdentifier {
+    None,
     Literal(&'static str),
     Arc(Arc<String>),
+}
+
+impl From<()> for TaskIdentifier {
+    fn from(_value: ()) -> Self {
+        Self::None
+    }
 }
 
 impl From<&'static str> for TaskIdentifier {
@@ -28,6 +35,7 @@ impl From<Arc<String>> for TaskIdentifier {
 impl std::fmt::Display for TaskIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            TaskIdentifier::None => write!(f, "[None]"),
             TaskIdentifier::Literal(data) => write!(f, "{data}"),
             TaskIdentifier::Arc(data) => write!(f, "{data}"),
         }
@@ -40,6 +48,9 @@ mod tests {
 
     #[test]
     fn test_display() {
+        let identifier = TaskIdentifier::from(());
+        assert_eq!(identifier.to_string(), "[None]");
+
         let identifier = TaskIdentifier::from("Hello World");
         assert_eq!(identifier.to_string(), "Hello World");
 

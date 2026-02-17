@@ -3,8 +3,8 @@ use std::{
     future::Future,
     rc::Rc,
     sync::{
+        Arc,
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
     },
 };
 
@@ -35,19 +35,17 @@ impl SplitTickedAsyncExecutor {
     where
         O: Fn(TaskState) + Clone + Send + Sync + 'static,
     {
-        let (task_tx, task_rx) = mpsc::channel();
-        let num_woken_tasks = Arc::new(AtomicUsize::new(0));
+        let (task_tx, task_rx) = flume::unbounded();
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
 
         #[cfg(feature = "tick_event")]
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
         #[cfg(feature = "timer_registration")]
-        let (timer_registration_tx, timer_registration_rx) = mpsc::channel();
+        let (timer_registration_tx, timer_registration_rx) = flume::unbounded();
 
         let spawner = TickedAsyncExecutorSpawner {
             task_tx,
-            num_woken_tasks: num_woken_tasks.clone(),
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
             #[cfg(feature = "tick_event")]
@@ -57,7 +55,6 @@ impl SplitTickedAsyncExecutor {
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
-            num_woken_tasks,
             num_spawned_tasks,
             observer,
             delta: Rc::new(0.0.into()),
@@ -73,8 +70,7 @@ impl SplitTickedAsyncExecutor {
 }
 
 pub struct TickedAsyncExecutorSpawner<O> {
-    task_tx: mpsc::Sender<Payload>,
-    num_woken_tasks: Arc<AtomicUsize>,
+    task_tx: flume::Sender<Payload>,
 
     num_spawned_tasks: Arc<AtomicUsize>,
     // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
@@ -85,7 +81,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
-    timer_registration_tx: mpsc::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_tx: flume::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -153,12 +149,10 @@ where
         &self,
         identifier: TaskIdentifier,
     ) -> impl Fn(async_task::Runnable) + use<O> {
-        let sender = self.task_tx.clone();
-        let num_woken_tasks = self.num_woken_tasks.clone();
+        let task_tx = self.task_tx.clone();
         let observer = self.observer.clone();
         move |runnable| {
-            sender.send((identifier.clone(), runnable)).unwrap_or(());
-            num_woken_tasks.fetch_add(1, Ordering::Relaxed);
+            task_tx.send((identifier.clone(), runnable)).unwrap_or(());
             observer(TaskState::Wake(identifier.clone()));
         }
     }
@@ -178,8 +172,7 @@ impl TickedAsyncExecutorDelta {
 }
 
 pub struct TickedAsyncExecutorTicker<O> {
-    task_rx: mpsc::Receiver<Payload>,
-    num_woken_tasks: Arc<AtomicUsize>,
+    task_rx: flume::Receiver<Payload>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
     delta: Rc<Cell<f64>>,
@@ -188,7 +181,7 @@ pub struct TickedAsyncExecutorTicker<O> {
     tick_event_tx: tokio::sync::watch::Sender<f64>,
 
     #[cfg(feature = "timer_registration")]
-    timer_registration_rx: mpsc::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_rx: flume::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
     #[cfg(feature = "timer_registration")]
     timers: Vec<(f64, tokio::sync::oneshot::Sender<()>)>,
 }
@@ -210,7 +203,7 @@ where
         #[cfg(feature = "timer_registration")]
         self.timer_registration_tick(delta);
 
-        let mut num_woken_tasks = self.num_woken_tasks.load(Ordering::Relaxed);
+        let mut num_woken_tasks = self.task_rx.len();
         if let Some(limit) = limit {
             // Woken tasks should not exceed the allowed limit
             num_woken_tasks = num_woken_tasks.min(limit);
@@ -223,8 +216,6 @@ where
                 (self.observer)(TaskState::Tick(identifier, delta));
                 runnable.run();
             });
-        self.num_woken_tasks
-            .fetch_sub(num_woken_tasks, Ordering::Relaxed);
     }
 
     pub fn wait_till_completed(&mut self, constant_delta: f64) {
