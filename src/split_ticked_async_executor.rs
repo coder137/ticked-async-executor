@@ -52,6 +52,7 @@ impl SplitTickedAsyncExecutor {
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
             timer_registration_tx,
+            _not_send: std::marker::PhantomData::default(),
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -82,6 +83,24 @@ pub struct TickedAsyncExecutorSpawner<O> {
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
     timer_registration_tx: flume::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
+
+    // https://github.com/rust-lang/rust/issues/68318
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
+    fn clone(&self) -> Self {
+        Self {
+            task_tx: self.task_tx.clone(),
+            num_spawned_tasks: self.num_spawned_tasks.clone(),
+            observer: self.observer.clone(),
+            #[cfg(feature = "tick_event")]
+            tick_event_rx: self.tick_event_rx.clone(),
+            #[cfg(feature = "timer_registration")]
+            timer_registration_tx: self.timer_registration_tx.clone(),
+            _not_send: self._not_send.clone(),
+        }
+    }
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
