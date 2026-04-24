@@ -72,11 +72,7 @@ impl SplitTickedAsyncExecutor {
 
 pub struct TickedAsyncExecutorSpawner<O> {
     task_tx: flume::Sender<Payload>,
-
     num_spawned_tasks: Arc<AtomicUsize>,
-    // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
-    // Broadcast recv channel should be notified when there are new messages in the queue
-    // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
 
     #[cfg(feature = "tick_event")]
