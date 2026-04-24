@@ -160,6 +160,7 @@ mod tests {
         let mut executor = TickedAsyncExecutor::default();
 
         let delta = executor.delta();
+        let _delta_inner = delta.clone().inner();
 
         executor
             .spawn_local("MyIdentifier", async move {
