@@ -52,6 +52,7 @@ impl SplitTickedAsyncExecutor {
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
             timer_registration_tx,
+            _not_send: std::marker::PhantomData::default(),
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -71,17 +72,31 @@ impl SplitTickedAsyncExecutor {
 
 pub struct TickedAsyncExecutorSpawner<O> {
     task_tx: flume::Sender<Payload>,
-
     num_spawned_tasks: Arc<AtomicUsize>,
-    // TODO, Or we need a Single Producer - Multi Consumer channel i.e Broadcast channel
-    // Broadcast recv channel should be notified when there are new messages in the queue
-    // Broadcast channel must also be able to remove older/stale messages (like a RingBuffer)
     observer: O,
 
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
     timer_registration_tx: flume::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
+
+    // https://github.com/rust-lang/rust/issues/68318
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
+    fn clone(&self) -> Self {
+        Self {
+            task_tx: self.task_tx.clone(),
+            num_spawned_tasks: self.num_spawned_tasks.clone(),
+            observer: self.observer.clone(),
+            #[cfg(feature = "tick_event")]
+            tick_event_rx: self.tick_event_rx.clone(),
+            #[cfg(feature = "timer_registration")]
+            timer_registration_tx: self.timer_registration_tx.clone(),
+            _not_send: self._not_send.clone(),
+        }
+    }
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
@@ -246,5 +261,17 @@ where
             .for_each(|(_, rx)| {
                 let _ignore = rx.send(());
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_ticked_async_executor_spawner_clone() {
+        let (spawner, _ticker) = SplitTickedAsyncExecutor::default();
+
+        let _spawner_clone = spawner.clone();
     }
 }

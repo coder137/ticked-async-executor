@@ -36,6 +36,9 @@ spawner.spawn_local("MyIdentifier", async move {}).detach();
 assert_eq!(spawner.num_tasks(), 1);
 ticker.tick(DELTA, None);
 assert_eq!(spawner.num_tasks(), 0);
+
+// spawner can be cloned
+let spawner_clone = spawner.clone();
 ```
 
 ## Limit the number of woken tasks run per tick
