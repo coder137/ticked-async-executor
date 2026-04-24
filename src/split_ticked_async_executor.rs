@@ -263,3 +263,15 @@ where
             });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_ticked_async_executor_spawner_clone() {
+        let (spawner, _ticker) = SplitTickedAsyncExecutor::default();
+
+        let _spawner_clone = spawner.clone();
+    }
+}
