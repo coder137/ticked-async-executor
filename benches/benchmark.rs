@@ -79,7 +79,7 @@ fn timer_from_tick_event_benchmark(c: &mut Criterion) {
             let timer = executor.create_timer_from_tick_event();
             executor
                 .spawn_local("empty", async move {
-                    timer.sleep_for(1.0).await;
+                    timer.sleep_for(1.0).await.unwrap_or_default();
                 })
                 .detach();
 
@@ -96,7 +96,7 @@ fn timer_from_tick_event_benchmark(c: &mut Criterion) {
                 let timer = executor.create_timer_from_tick_event();
                 executor
                     .spawn_local("empty", async move {
-                        timer.sleep_for(1.0).await;
+                        timer.sleep_for(1.0).await.unwrap_or_default();
                     })
                     .detach();
             }
