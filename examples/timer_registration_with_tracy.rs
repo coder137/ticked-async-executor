@@ -1,24 +1,11 @@
 use ticked_async_executor::TickedAsyncExecutor;
+use tracing::Instrument;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_tracy::client::ProfiledAllocator;
 
 #[global_allocator]
 static GLOBAL: ProfiledAllocator<std::alloc::System> =
     ProfiledAllocator::new(std::alloc::System, 100);
-
-async fn async_yield_now() {
-    let mut yielded = false;
-    std::future::poll_fn(|cx| {
-        if yielded {
-            std::task::Poll::Ready(())
-        } else {
-            yielded = true;
-            cx.waker().wake_by_ref();
-            std::task::Poll::Pending
-        }
-    })
-    .await;
-}
 
 fn main() -> Result<(), ()> {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -35,20 +22,29 @@ fn main() -> Result<(), ()> {
         tracing::info!("{state:?}");
     });
 
-    executor
-        .spawn_local((), async move {
-            let mut counter = 0;
-            loop {
-                println!("COUNT: {}", counter);
-                counter += 1;
-                async_yield_now().await;
-                if shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-                    println!("SHUTDOWN");
-                    break;
+    let timer = executor.create_timer_from_timer_registration();
+    for i in 0..10 {
+        let timer_clone = timer.clone();
+        let shutdown_clone = shutdown.clone();
+        executor
+            .spawn_local(
+                (),
+                async move {
+                    let mut counter = 0;
+                    loop {
+                        println!("COUNT: {}", counter);
+                        counter += 1;
+                        timer_clone.sleep_for(160.0).await.unwrap_or_default();
+                        if shutdown_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                            println!("SHUTDOWN: {i}");
+                            break;
+                        }
+                    }
                 }
-            }
-        })
-        .detach();
+                .instrument(tracing::info_span!("Task", name = i)),
+            )
+            .detach();
+    }
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(16));

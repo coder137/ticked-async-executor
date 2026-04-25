@@ -192,7 +192,7 @@ mod tests {
             let timer = executor.create_timer_from_tick_event();
             executor
                 .spawn_local("LocalTimer", async move {
-                    timer.sleep_for(256.0).await;
+                    timer.sleep_for(256.0).await.unwrap_or_default();
                 })
                 .detach();
         }
@@ -218,14 +218,14 @@ mod tests {
         let timer = executor.create_timer_from_tick_event();
         executor
             .spawn_local("LocalFuture1", async move {
-                timer.sleep_for(1000.0).await;
+                timer.sleep_for(1000.0).await.unwrap_or_default();
             })
             .detach();
 
         let timer = executor.create_timer_from_tick_event();
         executor
             .spawn_local("LocalFuture2", async move {
-                timer.sleep_for(1000.0).await;
+                timer.sleep_for(1000.0).await.unwrap_or_default();
             })
             .detach();
 
@@ -269,7 +269,7 @@ mod tests {
             let timer = executor.create_timer_from_timer_registration();
             executor
                 .spawn_local("LocalTimer", async move {
-                    timer.sleep_for(256.0).await;
+                    timer.sleep_for(256.0).await.unwrap_or_default();
                 })
                 .detach();
         }

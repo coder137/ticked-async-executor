@@ -52,7 +52,7 @@ impl SplitTickedAsyncExecutor {
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
             timer_registration_tx,
-            _not_send: std::marker::PhantomData::default(),
+            _not_send: std::marker::PhantomData,
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -78,7 +78,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
-    timer_registration_tx: flume::Sender<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_tx: flume::Sender<(f64, std::task::Waker)>,
 
     // https://github.com/rust-lang/rust/issues/68318
     _not_send: std::marker::PhantomData<*const ()>,
@@ -94,7 +94,7 @@ impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
             timer_registration_tx: self.timer_registration_tx.clone(),
-            _not_send: self._not_send.clone(),
+            _not_send: self._not_send,
         }
     }
 }
@@ -196,9 +196,10 @@ pub struct TickedAsyncExecutorTicker<O> {
     tick_event_tx: tokio::sync::watch::Sender<f64>,
 
     #[cfg(feature = "timer_registration")]
-    timer_registration_rx: flume::Receiver<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timer_registration_rx: flume::Receiver<(f64, std::task::Waker)>,
+
     #[cfg(feature = "timer_registration")]
-    timers: Vec<(f64, tokio::sync::oneshot::Sender<()>)>,
+    timers: Vec<(f64, std::task::Waker)>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
@@ -250,16 +251,17 @@ where
         if self.timers.is_empty() {
             return;
         }
-        self.timers.iter_mut().for_each(|(elapsed, _)| {
-            *elapsed -= delta;
-        });
 
+        // Update timers with delta
         // Extract timers that have elapsed
         // Notify corresponding channels
         self.timers
-            .extract_if(.., |(elapsed, _)| *elapsed <= 0.0)
-            .for_each(|(_, rx)| {
-                let _ignore = rx.send(());
+            .extract_if(.., |(elapsed, _)| {
+                *elapsed -= delta;
+                *elapsed <= 0.0
+            })
+            .for_each(|(_, waker)| {
+                waker.wake();
             });
     }
 }
