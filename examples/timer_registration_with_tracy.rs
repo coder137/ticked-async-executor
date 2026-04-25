@@ -34,7 +34,7 @@ fn main() -> Result<(), ()> {
                     loop {
                         println!("COUNT: {}", counter);
                         counter += 1;
-                        timer_clone.sleep_for(160.0).await;
+                        timer_clone.sleep_for(160.0).await.unwrap_or_default();
                         if shutdown_clone.load(std::sync::atomic::Ordering::Relaxed) {
                             println!("SHUTDOWN: {i}");
                             break;
