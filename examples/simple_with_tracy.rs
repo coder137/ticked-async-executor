@@ -31,7 +31,9 @@ fn main() -> Result<(), ()> {
     let tracy_layer = tracing_tracy::TracyLayer::default();
     tracing_subscriber::registry().with(tracy_layer).init();
 
-    let mut executor = TickedAsyncExecutor::default();
+    let mut executor = TickedAsyncExecutor::new(|state| {
+        tracing::info!("{state:?}");
+    });
 
     executor
         .spawn_local((), async move {
