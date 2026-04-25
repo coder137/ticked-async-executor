@@ -1,6 +1,4 @@
-/// DO NOT USE
-///
-/// Use `TickedTimerFromTimerRegistration` gated under the `timer_registration` feature
+#[derive(Clone)]
 pub struct TickedTimerFromTickEvent {
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
 }
