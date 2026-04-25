@@ -41,3 +41,10 @@ ctrlc = "3.5.2"
 [[bench]]
 name = "benchmark"
 harness = false
+
+[[example]]
+name = "simple_with_tracy"
+
+[[example]]
+name = "timer_registration_with_tracy"
+required-features = ["timer_registration"]
