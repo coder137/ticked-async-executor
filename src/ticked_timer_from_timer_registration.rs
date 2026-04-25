@@ -51,17 +51,17 @@ impl std::future::Future for SleepFuture {
 
 #[cfg(test)]
 mod tests {
-    use crate::TickedAsyncExecutor;
+    use crate::{SplitTickedAsyncExecutor, TickedAsyncExecutor};
 
     #[test]
-    fn test_timer_registration() {
+    fn test_timer_registration_success() {
         let mut executor = TickedAsyncExecutor::default();
 
-        let t = executor.create_timer_from_timer_registration();
+        let timer = executor.create_timer_from_timer_registration();
         executor
             .spawn_local((), async move {
                 println!("TASK BEFORE");
-                t.sleep_for(10.0).await.unwrap_or_default();
+                timer.sleep_for(10.0).await.unwrap_or_default();
                 println!("TASK AFTER");
             })
             .detach();
@@ -72,5 +72,20 @@ mod tests {
             println!("TICK AFTER: {i}");
         }
         assert_eq!(executor.num_tasks(), 0);
+    }
+
+    #[test]
+    fn test_timer_registration_failure() {
+        let (spawner, ticker) = SplitTickedAsyncExecutor::default();
+
+        let timer = spawner.create_timer_from_timer_registration();
+
+        let mut timer_future = timer.sleep_for(10.0);
+        drop(ticker);
+
+        let waker = std::task::Waker::noop();
+        let mut ctx = std::task::Context::from_waker(waker);
+        let status = std::pin::pin!(&mut timer_future).poll(&mut ctx);
+        assert_eq!(status, std::task::Poll::Ready(Err(())));
     }
 }
