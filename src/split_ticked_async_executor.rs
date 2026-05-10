@@ -14,7 +14,8 @@ use crate::{DroppableFuture, TaskIdentifier};
 pub enum TaskState {
     Spawn(TaskIdentifier),
     Wake(TaskIdentifier),
-    Tick(TaskIdentifier, f64),
+    TickStart(TaskIdentifier, f64),
+    TickEnd(TaskIdentifier),
     Drop(TaskIdentifier),
 }
 
@@ -229,8 +230,9 @@ where
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::Tick(identifier, delta));
+                (self.observer)(TaskState::TickStart(identifier.clone(), delta));
                 runnable.run();
+                (self.observer)(TaskState::TickEnd(identifier))
             });
     }
 
