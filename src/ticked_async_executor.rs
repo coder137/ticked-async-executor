@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use crate::{
-    SplitTickedAsyncExecutor, Task, TaskIdentifier, TaskState, TickedAsyncExecutorDelta,
+    SplitTickedAsyncExecutor, Task, UserId, TaskState, TickedAsyncExecutorDelta,
     TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker,
 };
 
@@ -27,7 +27,7 @@ where
 
     pub fn spawn_local<T>(
         &self,
-        identifier: impl Into<TaskIdentifier>,
+        identifier: impl Into<UserId>,
         future: impl Future<Output = T> + 'static,
     ) -> Task<T>
     where

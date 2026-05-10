@@ -8,19 +8,19 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskIdentifier};
+use crate::{DroppableFuture, TaskId, UserId};
 
 #[derive(Debug)]
 pub enum TaskState {
-    Spawn(TaskIdentifier),
-    Wake(TaskIdentifier),
-    TickStart(TaskIdentifier, f64),
-    TickEnd(TaskIdentifier),
-    Drop(TaskIdentifier),
+    Spawn(TaskId),
+    Wake(TaskId),
+    TickStart(TaskId, f64),
+    TickEnd(TaskId),
+    Drop(TaskId),
 }
 
 pub type Task<T> = async_task::Task<T>;
-type Payload = (TaskIdentifier, async_task::Runnable);
+type Payload = (TaskId, async_task::Runnable);
 
 pub struct SplitTickedAsyncExecutor;
 
@@ -51,6 +51,7 @@ impl SplitTickedAsyncExecutor {
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
             delta: delta.clone(),
+            counter: Rc::new(Cell::new(0)),
             #[cfg(feature = "tick_event")]
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
@@ -91,6 +92,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
     delta: Rc<Cell<f64>>,
+    counter: Rc<Cell<u64>>,
 
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
@@ -108,6 +110,7 @@ impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
             num_spawned_tasks: self.num_spawned_tasks.clone(),
             observer: self.observer.clone(),
             delta: self.delta.clone(),
+            counter: self.counter.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
@@ -127,15 +130,19 @@ where
 
     pub fn spawn_local<T>(
         &self,
-        identifier: impl Into<TaskIdentifier>,
+        user_id: impl Into<UserId>,
         future: impl Future<Output = T> + 'static,
     ) -> Task<T>
     where
         T: 'static,
     {
-        let identifier = identifier.into();
-        let future = self.droppable_future(identifier.clone(), future);
-        let schedule = self.runnable_schedule_cb(identifier);
+        let next_id = self.counter.get() + 1;
+        let task_id = self.counter.replace(next_id);
+        let user_id = user_id.into();
+        let task_id = TaskId { task_id, user_id };
+
+        let future = self.droppable_future(task_id.clone(), future);
+        let schedule = self.runnable_schedule_cb(task_id);
         let (runnable, task) = async_task::spawn_local(future, schedule);
         runnable.schedule();
         task
@@ -162,7 +169,7 @@ where
 
     fn droppable_future<F>(
         &self,
-        identifier: TaskIdentifier,
+        task_id: TaskId,
         future: F,
     ) -> DroppableFuture<F, impl Fn() + use<F, O>>
     where
@@ -172,25 +179,22 @@ where
 
         // Spawn Task
         self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
-        observer(TaskState::Spawn(identifier.clone()));
+        observer(TaskState::Spawn(task_id.clone()));
 
         // Droppable Future registering on_drop callback
         let num_spawned_tasks = self.num_spawned_tasks.clone();
         DroppableFuture::new(future, move || {
             num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer(TaskState::Drop(identifier.clone()));
+            observer(TaskState::Drop(task_id.clone()));
         })
     }
 
-    fn runnable_schedule_cb(
-        &self,
-        identifier: TaskIdentifier,
-    ) -> impl Fn(async_task::Runnable) + use<O> {
+    fn runnable_schedule_cb(&self, task_id: TaskId) -> impl Fn(async_task::Runnable) + use<O> {
         let task_tx = self.task_tx.clone();
         let observer = self.observer.clone();
         move |runnable| {
-            task_tx.send((identifier.clone(), runnable)).unwrap_or(());
-            observer(TaskState::Wake(identifier.clone()));
+            task_tx.send((task_id.clone(), runnable)).unwrap_or(());
+            observer(TaskState::Wake(task_id.clone()));
         }
     }
 }
