@@ -38,6 +38,7 @@ impl SplitTickedAsyncExecutor {
     {
         let (task_tx, task_rx) = flume::unbounded();
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
+        let delta = Rc::new(Cell::new(0.0));
 
         #[cfg(feature = "tick_event")]
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
@@ -49,6 +50,7 @@ impl SplitTickedAsyncExecutor {
             task_tx,
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
+            delta: delta.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
@@ -59,7 +61,7 @@ impl SplitTickedAsyncExecutor {
             task_rx,
             num_spawned_tasks,
             observer,
-            delta: Rc::new(0.0.into()),
+            delta,
             #[cfg(feature = "tick_event")]
             tick_event_tx,
             #[cfg(feature = "timer_registration")]
@@ -71,10 +73,24 @@ impl SplitTickedAsyncExecutor {
     }
 }
 
+#[derive(Clone)]
+pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
+
+impl TickedAsyncExecutorDelta {
+    pub fn get(&self) -> f64 {
+        self.0.get()
+    }
+
+    pub fn inner(self) -> Rc<Cell<f64>> {
+        self.0
+    }
+}
+
 pub struct TickedAsyncExecutorSpawner<O> {
     task_tx: flume::Sender<Payload>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
+    delta: Rc<Cell<f64>>,
 
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
@@ -91,6 +107,7 @@ impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
             task_tx: self.task_tx.clone(),
             num_spawned_tasks: self.num_spawned_tasks.clone(),
             observer: self.observer.clone(),
+            delta: self.delta.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
@@ -104,6 +121,10 @@ impl<O> TickedAsyncExecutorSpawner<O>
 where
     O: Fn(TaskState) + Clone + Send + Sync + 'static,
 {
+    pub fn delta(&self) -> TickedAsyncExecutorDelta {
+        TickedAsyncExecutorDelta(self.delta.clone())
+    }
+
     pub fn spawn_local<T>(
         &self,
         identifier: impl Into<TaskIdentifier>,
@@ -171,19 +192,6 @@ where
             task_tx.send((identifier.clone(), runnable)).unwrap_or(());
             observer(TaskState::Wake(identifier.clone()));
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
-
-impl TickedAsyncExecutorDelta {
-    pub fn get(&self) -> f64 {
-        self.0.get()
-    }
-
-    pub fn inner(self) -> Rc<Cell<f64>> {
-        self.0
     }
 }
 
