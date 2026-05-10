@@ -219,10 +219,6 @@ impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Fn(TaskState),
 {
-    pub fn delta(&self) -> TickedAsyncExecutorDelta {
-        TickedAsyncExecutorDelta(self.delta.clone())
-    }
-
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
         self.delta.replace(delta);
 

@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use crate::{
-    SplitTickedAsyncExecutor, Task, UserId, TaskState, TickedAsyncExecutorDelta,
-    TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker,
+    SplitTickedAsyncExecutor, Task, TaskState, TickedAsyncExecutorDelta,
+    TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker, UserId,
 };
 
 pub struct TickedAsyncExecutor<O> {
@@ -41,7 +41,7 @@ where
     }
 
     pub fn delta(&self) -> TickedAsyncExecutorDelta {
-        self.ticker.delta()
+        self.spawner.delta()
     }
 
     /// Run the woken tasks once
