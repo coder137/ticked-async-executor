@@ -14,7 +14,8 @@ use crate::{DroppableFuture, TaskIdentifier};
 pub enum TaskState {
     Spawn(TaskIdentifier),
     Wake(TaskIdentifier),
-    Tick(TaskIdentifier, f64),
+    TickStart(TaskIdentifier, f64),
+    TickEnd(TaskIdentifier),
     Drop(TaskIdentifier),
 }
 
@@ -37,6 +38,7 @@ impl SplitTickedAsyncExecutor {
     {
         let (task_tx, task_rx) = flume::unbounded();
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
+        let delta = Rc::new(Cell::new(0.0));
 
         #[cfg(feature = "tick_event")]
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
@@ -48,6 +50,7 @@ impl SplitTickedAsyncExecutor {
             task_tx,
             num_spawned_tasks: num_spawned_tasks.clone(),
             observer: observer.clone(),
+            delta: delta.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
@@ -58,7 +61,7 @@ impl SplitTickedAsyncExecutor {
             task_rx,
             num_spawned_tasks,
             observer,
-            delta: Rc::new(0.0.into()),
+            delta,
             #[cfg(feature = "tick_event")]
             tick_event_tx,
             #[cfg(feature = "timer_registration")]
@@ -70,10 +73,24 @@ impl SplitTickedAsyncExecutor {
     }
 }
 
+#[derive(Clone)]
+pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
+
+impl TickedAsyncExecutorDelta {
+    pub fn get(&self) -> f64 {
+        self.0.get()
+    }
+
+    pub fn inner(self) -> Rc<Cell<f64>> {
+        self.0
+    }
+}
+
 pub struct TickedAsyncExecutorSpawner<O> {
     task_tx: flume::Sender<Payload>,
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
+    delta: Rc<Cell<f64>>,
 
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
@@ -90,6 +107,7 @@ impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
             task_tx: self.task_tx.clone(),
             num_spawned_tasks: self.num_spawned_tasks.clone(),
             observer: self.observer.clone(),
+            delta: self.delta.clone(),
             #[cfg(feature = "tick_event")]
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
@@ -103,6 +121,10 @@ impl<O> TickedAsyncExecutorSpawner<O>
 where
     O: Fn(TaskState) + Clone + Send + Sync + 'static,
 {
+    pub fn delta(&self) -> TickedAsyncExecutorDelta {
+        TickedAsyncExecutorDelta(self.delta.clone())
+    }
+
     pub fn spawn_local<T>(
         &self,
         identifier: impl Into<TaskIdentifier>,
@@ -173,19 +195,6 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct TickedAsyncExecutorDelta(Rc<Cell<f64>>);
-
-impl TickedAsyncExecutorDelta {
-    pub fn get(&self) -> f64 {
-        self.0.get()
-    }
-
-    pub fn inner(self) -> Rc<Cell<f64>> {
-        self.0
-    }
-}
-
 pub struct TickedAsyncExecutorTicker<O> {
     task_rx: flume::Receiver<Payload>,
     num_spawned_tasks: Arc<AtomicUsize>,
@@ -229,8 +238,9 @@ where
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::Tick(identifier, delta));
+                (self.observer)(TaskState::TickStart(identifier.clone(), delta));
                 runnable.run();
+                (self.observer)(TaskState::TickEnd(identifier))
             });
     }
 
