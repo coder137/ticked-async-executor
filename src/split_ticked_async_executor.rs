@@ -171,7 +171,7 @@ where
         &self,
         task_id: TaskId,
         future: F,
-    ) -> DroppableFuture<F, impl Fn() + use<F, O>>
+    ) -> DroppableFuture<F, impl FnOnce() + use<F, O>>
     where
         F: Future,
     {
@@ -185,7 +185,7 @@ where
         let num_spawned_tasks = self.num_spawned_tasks.clone();
         DroppableFuture::new(future, move || {
             num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer(TaskState::Drop(task_id.clone()));
+            observer(TaskState::Drop(task_id));
         })
     }
 
