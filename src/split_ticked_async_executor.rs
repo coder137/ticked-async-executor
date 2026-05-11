@@ -22,6 +22,22 @@ pub enum TaskState {
 pub type Task<T> = async_task::Task<T>;
 type Payload = (TaskId, async_task::Runnable);
 
+pub trait Observer: Clone + Send + Sync + 'static {
+    fn call(&self, state: TaskState);
+}
+
+impl Observer for fn(TaskState) {
+    fn call(&self, state: TaskState) {
+        (self)(state);
+    }
+}
+
+impl Observer for Arc<dyn Fn(TaskState) + Send + Sync + 'static> {
+    fn call(&self, state: TaskState) {
+        (self)(state);
+    }
+}
+
 pub struct SplitTickedAsyncExecutor;
 
 impl SplitTickedAsyncExecutor {
@@ -34,7 +50,7 @@ impl SplitTickedAsyncExecutor {
 
     pub fn new<O>(observer: O) -> (TickedAsyncExecutorSpawner<O>, TickedAsyncExecutorTicker<O>)
     where
-        O: Fn(TaskState) + Clone + Send + Sync + 'static,
+        O: Observer,
     {
         let (task_tx, task_rx) = flume::unbounded();
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
@@ -56,7 +72,6 @@ impl SplitTickedAsyncExecutor {
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
             timer_registration_tx,
-            _not_send: std::marker::PhantomData,
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -98,12 +113,12 @@ pub struct TickedAsyncExecutorSpawner<O> {
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
     timer_registration_tx: flume::Sender<(f64, std::task::Waker)>,
-
-    // https://github.com/rust-lang/rust/issues/68318
-    _not_send: std::marker::PhantomData<*const ()>,
 }
 
-impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
+impl<O> Clone for TickedAsyncExecutorSpawner<O>
+where
+    O: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             task_tx: self.task_tx.clone(),
@@ -115,14 +130,13 @@ impl<O: Clone> Clone for TickedAsyncExecutorSpawner<O> {
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
             timer_registration_tx: self.timer_registration_tx.clone(),
-            _not_send: self._not_send,
         }
     }
 }
 
 impl<O> TickedAsyncExecutorSpawner<O>
 where
-    O: Fn(TaskState) + Clone + Send + Sync + 'static,
+    O: Observer,
 {
     pub fn delta(&self) -> TickedAsyncExecutorDelta {
         TickedAsyncExecutorDelta(self.delta.clone())
@@ -179,13 +193,13 @@ where
 
         // Spawn Task
         self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
-        observer(TaskState::Spawn(task_id.clone()));
+        observer.call(TaskState::Spawn(task_id.clone()));
 
         // Droppable Future registering on_drop callback
         let num_spawned_tasks = self.num_spawned_tasks.clone();
         DroppableFuture::new(future, move || {
             num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer(TaskState::Drop(task_id));
+            observer.call(TaskState::Drop(task_id));
         })
     }
 
@@ -194,7 +208,7 @@ where
         let observer = self.observer.clone();
         move |runnable| {
             task_tx.send((task_id.clone(), runnable)).unwrap_or(());
-            observer(TaskState::Wake(task_id.clone()));
+            observer.call(TaskState::Wake(task_id.clone()));
         }
     }
 }
@@ -217,7 +231,7 @@ pub struct TickedAsyncExecutorTicker<O> {
 
 impl<O> TickedAsyncExecutorTicker<O>
 where
-    O: Fn(TaskState),
+    O: Observer,
 {
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
         self.delta.replace(delta);
@@ -238,9 +252,10 @@ where
             .try_iter()
             .take(num_woken_tasks)
             .for_each(|(identifier, runnable)| {
-                (self.observer)(TaskState::TickStart(identifier.clone(), delta));
+                self.observer
+                    .call(TaskState::TickStart(identifier.clone(), delta));
                 runnable.run();
-                (self.observer)(TaskState::TickEnd(identifier))
+                self.observer.call(TaskState::TickEnd(identifier))
             });
     }
 
@@ -283,7 +298,35 @@ mod tests {
     #[test]
     fn test_split_ticked_async_executor_spawner_clone() {
         let (spawner, _ticker) = SplitTickedAsyncExecutor::default();
-
         let _spawner_clone = spawner.clone();
+    }
+
+    #[test]
+    fn test_split_ticked_async_executor_spawner_fn() {
+        let observer: fn(TaskState) = |state| {
+            println!("State: {state:?}");
+        };
+        let (spawner, mut ticker) = SplitTickedAsyncExecutor::new(observer);
+
+        spawner.spawn_local((), async move {}).detach();
+        spawner.spawn_local((), async move {}).detach();
+
+        ticker.tick(1.0, None);
+        assert_eq!(spawner.num_tasks(), 0);
+    }
+
+    #[test]
+    fn test_split_ticked_async_executor_spawner_arc_fntrait() {
+        let observer: std::sync::Arc<dyn Fn(TaskState) + Send + Sync + 'static> =
+            std::sync::Arc::new(|state: TaskState| {
+                println!("State: {state:?}");
+            });
+        let (spawner, mut ticker) = SplitTickedAsyncExecutor::new(observer);
+
+        spawner.spawn_local((), async move {}).detach();
+        spawner.spawn_local((), async move {}).detach();
+
+        ticker.tick(1.0, None);
+        assert_eq!(spawner.num_tasks(), 0);
     }
 }
