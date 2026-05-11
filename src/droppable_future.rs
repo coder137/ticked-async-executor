@@ -6,27 +6,30 @@ use pin_project::{pin_project, pinned_drop};
 pub struct DroppableFuture<F, D>
 where
     F: Future,
-    D: Fn(),
+    D: FnOnce(),
 {
     #[pin]
     future: F,
-    on_drop: D,
+    on_drop: Option<D>,
 }
 
 impl<F, D> DroppableFuture<F, D>
 where
     F: Future,
-    D: Fn(),
+    D: FnOnce(),
 {
     pub fn new(future: F, on_drop: D) -> Self {
-        Self { future, on_drop }
+        Self {
+            future,
+            on_drop: Some(on_drop),
+        }
     }
 }
 
 impl<F, D> Future for DroppableFuture<F, D>
 where
     F: Future,
-    D: Fn(),
+    D: FnOnce(),
 {
     type Output = F::Output;
 
@@ -43,9 +46,12 @@ where
 impl<F, D> PinnedDrop for DroppableFuture<F, D>
 where
     F: Future,
-    D: Fn(),
+    D: FnOnce(),
 {
     fn drop(self: Pin<&mut Self>) {
-        (self.on_drop)();
+        let this = self.project();
+        if let Some(on_drop) = this.on_drop.take() {
+            (on_drop)();
+        }
     }
 }
