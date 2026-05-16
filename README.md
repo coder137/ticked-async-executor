@@ -148,3 +148,6 @@ time:   [1.5688 ms 1.5692 ms 1.5697 ms]
 - [x] Timers
   - [x] Notification based: TickedTimerFromTimerRegistration
   - [x] Polling based: TickedTimerFromTickEvent
+- [x] Observer Trait
+  - [x] `fn(TaskState)`
+  - [x] `Arc<dyn Fn(TaskState) + Send + Sync + 'static>`
