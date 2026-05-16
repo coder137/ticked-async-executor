@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use crate::{
-    SplitTickedAsyncExecutor, Task, TaskState, TickedAsyncExecutorDelta,
+    Observer, SplitTickedAsyncExecutor, Task, TaskState, TickedAsyncExecutorDelta,
     TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker, UserId,
 };
 
@@ -18,7 +18,7 @@ impl Default for TickedAsyncExecutor<fn(TaskState)> {
 
 impl<O> TickedAsyncExecutor<O>
 where
-    O: Fn(TaskState) + Clone + Send + Sync + 'static,
+    O: Observer,
 {
     pub fn new(observer: O) -> Self {
         let (spawner, ticker) = SplitTickedAsyncExecutor::new(observer);
@@ -124,7 +124,9 @@ mod tests {
 
     #[test]
     fn test_task_cancellation() {
-        let mut executor = TickedAsyncExecutor::new(|_state| println!("{_state:?}"));
+        let mut executor = TickedAsyncExecutor::<fn(TaskState)>::new(|_state| {
+            println!("{_state:?}");
+        });
         let task1 = executor.spawn_local("A", async move {
             loop {
                 tokio::task::yield_now().await;

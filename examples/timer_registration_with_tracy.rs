@@ -1,4 +1,4 @@
-use ticked_async_executor::TickedAsyncExecutor;
+use ticked_async_executor::{TaskState, TickedAsyncExecutor};
 use tracing::Instrument;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_tracy::client::ProfiledAllocator;
@@ -18,7 +18,7 @@ fn main() -> Result<(), ()> {
     let tracy_layer = tracing_tracy::TracyLayer::default();
     tracing_subscriber::registry().with(tracy_layer).init();
 
-    let mut executor = TickedAsyncExecutor::new(|state| {
+    let mut executor = TickedAsyncExecutor::<fn(TaskState)>::new(|state| {
         tracing::info!("{state:?}");
     });
 
