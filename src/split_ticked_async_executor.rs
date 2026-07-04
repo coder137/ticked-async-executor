@@ -1,5 +1,6 @@
 use std::{
     cell::Cell,
+    collections::{HashSet, VecDeque},
     future::Future,
     rc::Rc,
     sync::{
@@ -78,6 +79,8 @@ impl SplitTickedAsyncExecutor {
             num_spawned_tasks,
             observer,
             delta,
+            ticked_task_ids: HashSet::default(),
+            pending_tasks: VecDeque::default(),
             #[cfg(feature = "tick_event")]
             tick_event_tx,
             #[cfg(feature = "timer_registration")]
@@ -218,6 +221,8 @@ pub struct TickedAsyncExecutorTicker<O> {
     num_spawned_tasks: Arc<AtomicUsize>,
     observer: O,
     delta: Rc<Cell<f64>>,
+    ticked_task_ids: HashSet<u64>,
+    pending_tasks: VecDeque<Payload>,
 
     #[cfg(feature = "tick_event")]
     tick_event_tx: tokio::sync::watch::Sender<f64>,
@@ -233,6 +238,51 @@ impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Observer,
 {
+    pub fn tick_all(&mut self, delta: f64) {
+        self.delta.replace(delta);
+
+        #[cfg(feature = "tick_event")]
+        let _r = self.tick_event_tx.send(delta);
+
+        #[cfg(feature = "timer_registration")]
+        self.timer_registration_tick(delta);
+
+        self.ticked_task_ids.clear();
+
+        self.pending_tasks
+            .drain(..)
+            .for_each(|(identifier, runnable)| {
+                assert!(!self.ticked_task_ids.contains(&identifier.task_id));
+                self.ticked_task_ids.insert(identifier.task_id);
+                self.observer
+                    .call(TaskState::TickStart(identifier.clone(), delta));
+                runnable.run();
+                self.observer.call(TaskState::TickEnd(identifier))
+            });
+
+        loop {
+            let mut counter = 0;
+            self.task_rx.try_iter().for_each(|(identifier, runnable)| {
+                counter += 1;
+                if self.ticked_task_ids.contains(&identifier.task_id) {
+                    // Do not tick this
+                    self.pending_tasks.push_back((identifier, runnable));
+                } else {
+                    // Tick this
+                    self.ticked_task_ids.insert(identifier.task_id);
+                    self.observer
+                        .call(TaskState::TickStart(identifier.clone(), delta));
+                    runnable.run();
+                    self.observer.call(TaskState::TickEnd(identifier))
+                }
+            });
+
+            if counter == 0 {
+                break;
+            }
+        }
+    }
+
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
         self.delta.replace(delta);
 
