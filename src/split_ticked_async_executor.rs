@@ -238,6 +238,10 @@ impl<O> TickedAsyncExecutorTicker<O>
 where
     O: Observer,
 {
+    pub fn num_tasks(&self) -> usize {
+        self.num_spawned_tasks.load(Ordering::Relaxed)
+    }
+
     pub fn tick_all(&mut self, delta: f64) {
         self.delta.replace(delta);
 
