@@ -13,7 +13,7 @@ readme = "README.md"
 # Provides a tick event in the form of a `tokio::sync::watch::Receiver<f64>` as per the `delta` provided 
 # to the `TickedAsyncExecutorTicker::tick` API
 # Also provides a timer implementation: `TickedTimerFromTickEvent`
-tick_event = []
+tick_event = ["dep:tokio"]
 
 # Timers can be registered with the `TickedAsyncExecutorTicker` via the `TickedAsyncExecutorSpawner`
 # The timers count down with every call to `TickedAsyncExecutorTicker::tick` API as per the delta provided
@@ -26,7 +26,9 @@ async-task = "4.7"
 pin-project = "1"
 flume = { version = "0.12" }
 
-tokio = { version = "1", default-features = false, features = ["sync"] }
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
