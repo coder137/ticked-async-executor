@@ -52,7 +52,7 @@ fn main() -> Result<(), ()> {
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(16));
-        executor.tick(16.00, None);
+        executor.tick_all(16.00);
         if executor.num_tasks() == 0 {
             break;
         }

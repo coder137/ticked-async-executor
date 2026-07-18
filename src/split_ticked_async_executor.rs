@@ -243,6 +243,10 @@ where
     }
 
     pub fn tick_all(&mut self, delta: f64) {
+        self.tick_till(delta, || true);
+    }
+
+    pub fn tick_till(&mut self, delta: f64, mut check_cb: impl FnMut() -> bool) {
         self.delta.replace(delta);
 
         #[cfg(feature = "tick_event")]
@@ -252,70 +256,57 @@ where
         self.timer_registration_tick(delta);
 
         self.ticked_task_ids.clear();
+        // run previous tasks
+        loop {
+            let current = self.pending_tasks.pop_front();
+            let (identifier, runnable) = match current {
+                Some(current) => current,
+                None => {
+                    break;
+                }
+            };
 
-        self.pending_tasks
-            .drain(..)
-            .for_each(|(identifier, runnable)| {
-                assert!(!self.ticked_task_ids.contains(&identifier.task_id));
-                self.ticked_task_ids.insert(identifier.task_id);
-                self.observer
-                    .call(TaskState::TickStart(identifier.clone(), delta));
-                runnable.run();
-                self.observer.call(TaskState::TickEnd(identifier))
-            });
+            debug_assert!(!self.ticked_task_ids.contains(&identifier.task_id));
+            self.ticked_task_ids.insert(identifier.task_id);
+            self.observer
+                .call(TaskState::TickStart(identifier.clone(), delta));
+            runnable.run();
+            self.observer.call(TaskState::TickEnd(identifier));
+            if !check_cb() {
+                break;
+            }
+        }
 
+        // run current tasks
+        let mut do_not_tick = false;
         loop {
             let mut counter = 0;
-            self.task_rx.try_iter().for_each(|(identifier, runnable)| {
+            for (identifier, runnable) in self.task_rx.try_iter() {
                 counter += 1;
                 if self.ticked_task_ids.contains(&identifier.task_id) {
-                    // Do not tick this
                     self.pending_tasks.push_back((identifier, runnable));
                 } else {
-                    // Tick this
-                    self.ticked_task_ids.insert(identifier.task_id);
-                    self.observer
-                        .call(TaskState::TickStart(identifier.clone(), delta));
-                    runnable.run();
-                    self.observer.call(TaskState::TickEnd(identifier))
+                    if do_not_tick {
+                        self.pending_tasks.push_back((identifier, runnable));
+                    } else {
+                        self.ticked_task_ids.insert(identifier.task_id);
+                        self.observer
+                            .call(TaskState::TickStart(identifier.clone(), delta));
+                        runnable.run();
+                        self.observer.call(TaskState::TickEnd(identifier));
+                        do_not_tick = !check_cb();
+                    }
                 }
-            });
-
+            }
             if counter == 0 {
                 break;
             }
         }
     }
 
-    pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
-        self.delta.replace(delta);
-
-        #[cfg(feature = "tick_event")]
-        let _r = self.tick_event_tx.send(delta);
-
-        #[cfg(feature = "timer_registration")]
-        self.timer_registration_tick(delta);
-
-        let mut num_woken_tasks = self.task_rx.len();
-        if let Some(limit) = limit {
-            // Woken tasks should not exceed the allowed limit
-            num_woken_tasks = num_woken_tasks.min(limit);
-        }
-
-        self.task_rx
-            .try_iter()
-            .take(num_woken_tasks)
-            .for_each(|(identifier, runnable)| {
-                self.observer
-                    .call(TaskState::TickStart(identifier.clone(), delta));
-                runnable.run();
-                self.observer.call(TaskState::TickEnd(identifier))
-            });
-    }
-
     pub fn wait_till_completed(&mut self, constant_delta: f64) {
-        while self.num_spawned_tasks.load(Ordering::Relaxed) != 0 {
-            self.tick(constant_delta, None);
+        while self.num_tasks() != 0 {
+            self.tick_all(constant_delta);
         }
     }
 
@@ -365,7 +356,7 @@ mod tests {
         spawner.spawn_local((), async move {}).detach();
         spawner.spawn_local((), async move {}).detach();
 
-        ticker.tick(1.0, None);
+        ticker.tick_all(1.0);
         assert_eq!(spawner.num_tasks(), 0);
     }
 
@@ -380,7 +371,7 @@ mod tests {
         spawner.spawn_local((), async move {}).detach();
         spawner.spawn_local((), async move {}).detach();
 
-        ticker.tick(1.0, None);
+        ticker.tick_all(1.0);
         assert_eq!(spawner.num_tasks(), 0);
     }
 }

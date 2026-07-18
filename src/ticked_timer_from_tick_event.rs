@@ -44,7 +44,7 @@ mod tests {
 
         for i in 0..=10 {
             println!("TICK BEFORE: {i}");
-            executor.tick(1.0, None);
+            executor.tick_all(1.0);
             println!("TICK AFTER: {i}");
         }
         assert_eq!(executor.num_tasks(), 0);

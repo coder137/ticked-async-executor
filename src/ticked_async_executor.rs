@@ -57,8 +57,28 @@ where
     /// Tick is !Sync i.e cannot be invoked from multiple threads
     ///
     /// NOTE: Will not run tasks that are woken/scheduled immediately after `Runnable::run`
+    #[deprecated = "Use tick_all or tick_till API"]
     pub fn tick(&mut self, delta: f64, limit: Option<usize>) {
-        self.ticker.tick(delta, limit);
+        match limit {
+            Some(limit) => {
+                let mut counter = limit;
+                self.ticker.tick_till(delta, || {
+                    counter -= 1;
+                    counter != 0
+                });
+            }
+            None => {
+                self.tick_all(delta);
+            }
+        }
+    }
+
+    pub fn tick_all(&mut self, delta: f64) {
+        self.ticker.tick_all(delta);
+    }
+
+    pub fn tick_till(&mut self, delta: f64, check_cb: impl FnMut() -> bool) {
+        self.ticker.tick_till(delta, check_cb);
     }
 
     #[cfg(feature = "tick_event")]
@@ -89,14 +109,12 @@ mod tests {
 
     #[test]
     fn test_one_task() {
-        const LIMIT: Option<usize> = None;
-
         let mut executor = TickedAsyncExecutor::default();
 
         executor.spawn_local("MyIdentifier", async move {}).detach();
 
         // Make sure to tick your executor to run the tasks
-        executor.tick(DELTA, LIMIT);
+        executor.tick_all(DELTA);
         assert_eq!(executor.num_tasks(), 0);
     }
 
@@ -115,10 +133,10 @@ mod tests {
             })
             .detach();
 
-        executor.tick(DELTA, None);
+        executor.tick_all(DELTA);
         assert_eq!(executor.num_tasks(), 2);
 
-        executor.tick(DELTA, None);
+        executor.tick_all(DELTA);
         assert_eq!(executor.num_tasks(), 0);
     }
 
@@ -139,7 +157,7 @@ mod tests {
             }
         });
         assert_eq!(executor.num_tasks(), 2);
-        executor.tick(DELTA, None);
+        executor.tick_all(DELTA);
 
         executor
             .spawn_local("CancelTasks", async move {
@@ -156,7 +174,6 @@ mod tests {
 
     #[test]
     fn test_delta() {
-        const LIMIT: Option<usize> = None;
         const DELTAS: &[f64] = &[10.23, 16.67, 20.11, 45.22, 17.09];
 
         let mut executor = TickedAsyncExecutor::default();
@@ -178,7 +195,7 @@ mod tests {
 
         // Make sure to tick your executor to run the tasks
         for delta in DELTAS {
-            executor.tick(*delta, LIMIT);
+            executor.tick_all(*delta);
         }
         assert_eq!(executor.num_tasks(), 0);
     }
@@ -203,7 +220,7 @@ mod tests {
         let mut instances = vec![];
         while executor.num_tasks() != 0 {
             let current = Instant::now();
-            executor.tick(DELTA, None);
+            executor.tick_all(DELTA);
             instances.push(current.elapsed());
             std::thread::sleep(Duration::from_millis(16));
         }
@@ -255,7 +272,7 @@ mod tests {
             })
             .detach();
 
-        executor.tick(DELTA, None);
+        executor.tick_all(DELTA);
         assert_eq!(executor.num_tasks(), 4);
         drop(executor);
     }
@@ -280,7 +297,7 @@ mod tests {
         let mut instances = vec![];
         while executor.num_tasks() != 0 {
             let current = Instant::now();
-            executor.tick(DELTA, None);
+            executor.tick_all(DELTA);
             instances.push(current.elapsed());
             std::thread::sleep(Duration::from_millis(16));
         }
@@ -309,7 +326,36 @@ mod tests {
             println!("Tick {i}");
             let num_tasks = executor.num_tasks();
             assert_eq!(num_tasks, 10 - i);
-            executor.tick(0.1, Some(1));
+            let mut counter = 1;
+            executor.tick_till(0.1, || {
+                counter -= 1;
+                counter != 0
+            });
+        }
+
+        assert_eq!(executor.num_tasks(), 0);
+    }
+
+    #[test]
+    fn test_limit_2() {
+        let mut executor = TickedAsyncExecutor::default();
+        for i in 0..10 {
+            executor
+                .spawn_local(format!("{i}"), async move {
+                    println!("Finish {i}");
+                })
+                .detach();
+        }
+
+        for i in 0..5 {
+            println!("Tick {i}");
+            let num_tasks = executor.num_tasks();
+            assert_eq!(num_tasks, 10 - i * 2);
+            let mut counter = 2;
+            executor.tick_till(0.1, || {
+                counter -= 1;
+                counter != 0
+            });
         }
 
         assert_eq!(executor.num_tasks(), 0);

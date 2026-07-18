@@ -17,7 +17,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
         b.iter_with_large_drop(|| {
             let mut executor = TickedAsyncExecutor::default();
             executor.spawn_local("empty", async move {}).detach();
-            executor.tick(0.1, None);
+            executor.tick_all(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
@@ -28,7 +28,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
             executor.spawn_local("empty1", async move {}).detach();
             executor.spawn_local("empty2", async move {}).detach();
 
-            executor.tick(0.1, None);
+            executor.tick_all(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
@@ -40,7 +40,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
                 executor.spawn_local("_", async move {}).detach();
             }
 
-            executor.tick(0.1, None);
+            executor.tick_all(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
@@ -52,7 +52,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
                 executor.spawn_local("_", async move {}).detach();
             }
 
-            executor.tick(0.1, None);
+            executor.tick_all(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
@@ -64,7 +64,7 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
                 executor.spawn_local("_", async move {}).detach();
             }
 
-            executor.tick(0.1, None);
+            executor.tick_all(0.1);
             assert_eq!(executor.num_tasks(), 0);
         });
     });
