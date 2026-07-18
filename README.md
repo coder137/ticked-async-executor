@@ -34,7 +34,7 @@ spawner.spawn_local("MyIdentifier", async move {}).detach();
 
 // Tick your ticker to run the tasks
 assert_eq!(spawner.num_tasks(), 1);
-ticker.tick(DELTA, None);
+ticker.tick_all(DELTA);
 assert_eq!(spawner.num_tasks(), 0);
 
 // spawner can be cloned
@@ -55,9 +55,19 @@ executor.spawn_local("MyIdentifier2", async move {}).detach();
 
 // Runs upto 1 woken tasks per tick
 assert_eq!(executor.num_tasks(), 2);
-executor.tick(DELTA, Some(1));
+
+let mut counter = 1;
+executor.tick_till(DELTA, || {
+  counter -= 1;
+  counter != 0
+});
 assert_eq!(executor.num_tasks(), 1);
-executor.tick(DELTA, Some(1));
+
+let mut counter = 1;
+executor.tick_till(DELTA, || {
+  counter -= 1;
+  counter != 0
+});
 assert_eq!(executor.num_tasks(), 0);
 ```
 
