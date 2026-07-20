@@ -18,6 +18,7 @@ where
     F: Future,
     D: FnOnce(),
 {
+    #[must_use]
     pub fn new(future: F, on_drop: D) -> Self {
         Self {
             future,
