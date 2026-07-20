@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use ticked_async_executor::TickedAsyncExecutor;
@@ -62,6 +64,69 @@ fn spawn_tasks_benchmark(c: &mut Criterion) {
             let mut executor = TickedAsyncExecutor::default();
             for _ in 0..10000 {
                 executor.spawn_local("_", async move {}).detach();
+            }
+
+            executor.tick_all(0.1);
+            assert_eq!(executor.num_tasks(), 0);
+        });
+    });
+
+    enum T {
+        Start(usize, tokio::sync::oneshot::Sender<usize>),
+        Mid(
+            usize,
+            tokio::sync::oneshot::Receiver<usize>,
+            tokio::sync::oneshot::Sender<usize>,
+        ),
+        End(usize, tokio::sync::oneshot::Receiver<usize>),
+    }
+
+    c.bench_function("A -> B -> C .. 1000", move |b| {
+        let mut executor = TickedAsyncExecutor::default();
+        b.iter_with_large_drop(move || {
+            const CAPACITY: usize = 1000;
+            let mut v = Vec::with_capacity(CAPACITY);
+            let mut queues = VecDeque::with_capacity(CAPACITY);
+            for i in 0..CAPACITY {
+                let (tx1, rx1) = tokio::sync::oneshot::channel::<usize>();
+                match queues.pop_front() {
+                    Some(stored_rx) => v.push(T::Mid(i, stored_rx, tx1)),
+                    None => {
+                        v.push(T::Start(i, tx1));
+                    }
+                }
+                queues.push_back(rx1);
+            }
+            let stored_rx = queues.pop_front().unwrap();
+            v.push(T::End(CAPACITY, stored_rx));
+
+            for t in v.drain(..) {
+                match t {
+                    T::Start(i, sender) => {
+                        executor
+                            .spawn_local("_", async move {
+                                sender.send(i).unwrap();
+                            })
+                            .detach();
+                    }
+                    T::Mid(i, receiver, sender) => {
+                        executor
+                            .spawn_local("_", async move {
+                                let v = receiver.await.unwrap();
+                                assert_eq!(v, i - 1);
+                                sender.send(i).unwrap();
+                            })
+                            .detach();
+                    }
+                    T::End(i, receiver) => {
+                        executor
+                            .spawn_local("_", async move {
+                                let v = receiver.await.unwrap();
+                                assert_eq!(v, i - 1);
+                            })
+                            .detach();
+                    }
+                }
             }
 
             executor.tick_all(0.1);
