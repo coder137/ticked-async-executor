@@ -8,6 +8,9 @@ impl TickedTimerFromTickEvent {
         Self { tick_event_rx }
     }
 
+    /// DO NOT USE
+    ///
+    /// Instead use `TickedTimerFromTimerRegistration` gated under the `timer_registration` feature
     pub async fn sleep_for(mut self, mut duration_in_ms: f64) -> Result<(), ()> {
         loop {
             let _r = self.tick_event_rx.changed().await;
