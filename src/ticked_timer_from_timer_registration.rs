@@ -1,57 +1,63 @@
-#[derive(Clone)]
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+
+#[derive(Default)]
+pub struct TimerSystem {
+    events: RefCell<VecDeque<Rc<futures_intrusive::sync::LocalManualResetEvent>>>,
+    timers: RefCell<Vec<(f64, Rc<futures_intrusive::sync::LocalManualResetEvent>)>>,
+}
+
+impl TimerSystem {
+    pub async fn register_sleep_for(&self, duration: f64) {
+        let event = self.take_event();
+        self.timers.borrow_mut().push((duration, event.clone()));
+        event.wait().await;
+        self.give_event(event);
+    }
+
+    pub fn resolve_timers(&self, delta: f64) {
+        self.timers
+            .borrow_mut()
+            .extract_if(.., |(elapsed, _)| {
+                *elapsed -= delta;
+                *elapsed <= 0.0
+            })
+            .for_each(|(_, event)| {
+                event.set();
+            });
+    }
+
+    fn take_event(&self) -> Rc<futures_intrusive::sync::LocalManualResetEvent> {
+        match self.events.borrow_mut().pop_front() {
+            Some(event) => {
+                event.reset();
+                event
+            }
+            None => Rc::new(futures_intrusive::sync::LocalManualResetEvent::new(false)),
+        }
+    }
+
+    fn give_event(&self, event: Rc<futures_intrusive::sync::LocalManualResetEvent>) {
+        self.events.borrow_mut().push_back(event);
+    }
+}
+
 pub struct TickedTimerFromTimerRegistration {
-    timer_registration_tx: flume::Sender<(f64, std::task::Waker)>,
+    timer_system: Rc<TimerSystem>,
 }
 
 impl TickedTimerFromTimerRegistration {
-    pub fn new(timer_registration_tx: flume::Sender<(f64, std::task::Waker)>) -> Self {
-        Self {
-            timer_registration_tx,
-        }
+    pub fn new(timer_system: Rc<TimerSystem>) -> Self {
+        Self { timer_system }
     }
 
-    pub fn sleep_for(&self, duration: f64) -> SleepFuture {
-        SleepFuture {
-            tx: self.timer_registration_tx.clone(),
-            duration,
-            send: true,
-        }
-    }
-}
-
-pub struct SleepFuture {
-    tx: flume::Sender<(f64, std::task::Waker)>,
-    duration: f64,
-
-    // state
-    send: bool,
-}
-
-impl std::future::Future for SleepFuture {
-    type Output = Result<(), ()>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        if self.send {
-            self.send = false;
-            let waker = cx.waker().clone();
-            let _r = self.tx.send((self.duration, waker));
-            if _r.is_err() {
-                std::task::Poll::Ready(Err(()))
-            } else {
-                std::task::Poll::Pending
-            }
-        } else {
-            std::task::Poll::Ready(Ok(()))
-        }
+    pub async fn sleep_for(&self, duration: f64) {
+        self.timer_system.register_sleep_for(duration).await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{SplitTickedAsyncExecutor, TickedAsyncExecutor};
+    use crate::TickedAsyncExecutor;
 
     #[test]
     fn test_timer_registration_success() {
@@ -61,7 +67,7 @@ mod tests {
         executor
             .spawn_local((), async move {
                 println!("TASK BEFORE");
-                timer.sleep_for(10.0).await.unwrap_or_default();
+                timer.sleep_for(10.0).await;
                 println!("TASK AFTER");
             })
             .detach();
@@ -72,20 +78,5 @@ mod tests {
             println!("TICK AFTER: {i}");
         }
         assert_eq!(executor.num_tasks(), 0);
-    }
-
-    #[test]
-    fn test_timer_registration_failure() {
-        let (spawner, ticker) = SplitTickedAsyncExecutor::default();
-
-        let timer = spawner.create_timer_from_timer_registration();
-
-        let mut timer_future = timer.sleep_for(10.0);
-        drop(ticker);
-
-        let waker = std::task::Waker::noop();
-        let mut ctx = std::task::Context::from_waker(waker);
-        let status = std::pin::pin!(&mut timer_future).poll(&mut ctx);
-        assert_eq!(status, std::task::Poll::Ready(Err(())));
     }
 }

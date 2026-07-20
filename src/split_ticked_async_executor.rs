@@ -61,7 +61,7 @@ impl SplitTickedAsyncExecutor {
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
         #[cfg(feature = "timer_registration")]
-        let (timer_registration_tx, timer_registration_rx) = flume::unbounded();
+        let timer_system = Rc::new(crate::TimerSystem::default());
 
         let spawner = TickedAsyncExecutorSpawner {
             task_tx,
@@ -72,7 +72,7 @@ impl SplitTickedAsyncExecutor {
             #[cfg(feature = "tick_event")]
             tick_event_rx,
             #[cfg(feature = "timer_registration")]
-            timer_registration_tx,
+            timer_system: timer_system.clone(),
         };
         let ticker = TickedAsyncExecutorTicker {
             task_rx,
@@ -84,9 +84,7 @@ impl SplitTickedAsyncExecutor {
             #[cfg(feature = "tick_event")]
             tick_event_tx,
             #[cfg(feature = "timer_registration")]
-            timer_registration_rx,
-            #[cfg(feature = "timer_registration")]
-            timers: Vec::new(),
+            timer_system,
         };
         (spawner, ticker)
     }
@@ -115,7 +113,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
-    timer_registration_tx: flume::Sender<(f64, std::task::Waker)>,
+    timer_system: Rc<crate::TimerSystem>,
 }
 
 impl<O> Clone for TickedAsyncExecutorSpawner<O>
@@ -132,7 +130,7 @@ where
             #[cfg(feature = "tick_event")]
             tick_event_rx: self.tick_event_rx.clone(),
             #[cfg(feature = "timer_registration")]
-            timer_registration_tx: self.timer_registration_tx.clone(),
+            timer_system: self.timer_system.clone(),
         }
     }
 }
@@ -177,7 +175,7 @@ where
 
     #[cfg(feature = "timer_registration")]
     pub fn create_timer_from_timer_registration(&self) -> crate::TickedTimerFromTimerRegistration {
-        crate::TickedTimerFromTimerRegistration::new(self.timer_registration_tx.clone())
+        crate::TickedTimerFromTimerRegistration::new(self.timer_system.clone())
     }
 
     pub fn num_tasks(&self) -> usize {
@@ -228,10 +226,7 @@ pub struct TickedAsyncExecutorTicker<O> {
     tick_event_tx: tokio::sync::watch::Sender<f64>,
 
     #[cfg(feature = "timer_registration")]
-    timer_registration_rx: flume::Receiver<(f64, std::task::Waker)>,
-
-    #[cfg(feature = "timer_registration")]
-    timers: Vec<(f64, std::task::Waker)>,
+    timer_system: Rc<crate::TimerSystem>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
@@ -253,7 +248,7 @@ where
         let _r = self.tick_event_tx.send(delta);
 
         #[cfg(feature = "timer_registration")]
-        self.timer_registration_tick(delta);
+        self.timer_system.resolve_timers(delta);
 
         self.ticked_task_ids.clear();
         // run previous tasks
@@ -308,31 +303,6 @@ where
         while self.num_tasks() != 0 {
             self.tick_all(constant_delta);
         }
-    }
-
-    #[cfg(feature = "timer_registration")]
-    fn timer_registration_tick(&mut self, delta: f64) {
-        // Get new timers
-        self.timer_registration_rx.try_iter().for_each(|timer| {
-            self.timers.push(timer);
-        });
-
-        // Countdown timers
-        if self.timers.is_empty() {
-            return;
-        }
-
-        // Update timers with delta
-        // Extract timers that have elapsed
-        // Notify corresponding channels
-        self.timers
-            .extract_if(.., |(elapsed, _)| {
-                *elapsed -= delta;
-                *elapsed <= 0.0
-            })
-            .for_each(|(_, waker)| {
-                waker.wake();
-            });
     }
 }
 
