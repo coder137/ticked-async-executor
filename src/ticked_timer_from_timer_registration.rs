@@ -7,13 +7,6 @@ pub struct TimerSystem {
 }
 
 impl TimerSystem {
-    pub async fn register_sleep_for(&self, duration: f64) {
-        let event = self.take_event();
-        self.timers.borrow_mut().push((duration, event.clone()));
-        event.wait().await;
-        self.give_event(event);
-    }
-
     pub fn resolve_timers(&self, delta: f64) {
         self.timers
             .borrow_mut()
@@ -24,6 +17,14 @@ impl TimerSystem {
             .for_each(|(_, event)| {
                 event.set();
             });
+    }
+
+    fn register_timer(
+        &self,
+        duration: f64,
+        event: Rc<futures_intrusive::sync::LocalManualResetEvent>,
+    ) {
+        self.timers.borrow_mut().push((duration, event.clone()));
     }
 
     fn take_event(&self) -> Rc<futures_intrusive::sync::LocalManualResetEvent> {
@@ -51,7 +52,14 @@ impl TickedTimerFromTimerRegistration {
     }
 
     pub async fn sleep_for(&self, duration: f64) {
-        self.timer_system.register_sleep_for(duration).await
+        let event = self.timer_system.take_event();
+        self.timer_system.register_timer(duration, event.clone());
+
+        let timer_system = self.timer_system.clone();
+        crate::DroppableFuture::new(event.clone().wait(), || {
+            timer_system.give_event(event);
+        })
+        .await;
     }
 }
 
@@ -72,11 +80,60 @@ mod tests {
             })
             .detach();
 
-        for i in 0..=10 {
+        for i in 0..10 {
             println!("TICK BEFORE: {i}");
+            assert_eq!(executor.num_tasks(), 1);
             executor.tick_all(1.0);
             println!("TICK AFTER: {i}");
+            assert_eq!(executor.num_tasks(), 1);
         }
+        println!("TICK BEFORE: 10");
+        assert_eq!(executor.num_tasks(), 1);
+        executor.tick_all(1.0);
+        println!("TICK AFTER: 10");
         assert_eq!(executor.num_tasks(), 0);
+    }
+
+    #[test]
+    fn test_timer_registration_cancellation_safety() {
+        let mut executor = TickedAsyncExecutor::default();
+
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 0);
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        executor
+            .spawn_local("_", async move {
+                //
+                let timer_future = timer.sleep_for(10.0);
+                let out = tokio::select! {
+                    _ = timer_future => {
+                        println!("TIMER completed");
+                        1
+                    }
+                    _ = rx => {
+                        println!("RX completed");
+                        2
+                    }
+                };
+                assert_eq!(out, 2);
+            })
+            .detach();
+
+        executor.tick_all(1.0);
+        assert_eq!(executor.num_tasks(), 1);
+
+        executor.tick_all(1.0);
+        assert_eq!(executor.num_tasks(), 1);
+
+        tx.send(()).unwrap();
+        executor.tick_all(1.0);
+        assert_eq!(executor.num_tasks(), 0);
+        println!("DONE");
+
+        // NOTE, check if we have 1 event in the resource pool
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 1);
     }
 }
