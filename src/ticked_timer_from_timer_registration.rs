@@ -76,12 +76,73 @@ mod tests {
     use crate::TickedAsyncExecutor;
 
     #[test]
-    fn test_timer_registration_success() {
+    fn test_timer_registration() {
         let mut executor = TickedAsyncExecutor::default();
 
         let timer = executor.create_timer_from_timer_registration();
         assert_eq!(timer.timer_system.events.borrow().len(), 0);
         assert_eq!(timer.timer_system.timers.borrow().len(), 0);
+
+        executor
+            .spawn_local((), async move {
+                println!("TASK BEFORE");
+                timer.sleep_for(10.0).await;
+                println!("TASK AFTER");
+            })
+            .detach();
+
+        for i in 0..10 {
+            println!("TICK BEFORE: {i}");
+            assert_eq!(executor.num_tasks(), 1);
+            executor.tick_all(1.0);
+            println!("TICK AFTER: {i}");
+            assert_eq!(executor.num_tasks(), 1);
+        }
+        println!("TICK BEFORE: 10");
+        assert_eq!(executor.num_tasks(), 1);
+        executor.tick_all(1.0);
+        println!("TICK AFTER: 10");
+        assert_eq!(executor.num_tasks(), 0);
+
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 1);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
+    }
+
+    #[test]
+    fn test_timer_registration2() {
+        let mut executor = TickedAsyncExecutor::default();
+
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 0);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
+
+        executor
+            .spawn_local((), async move {
+                println!("TASK BEFORE");
+                timer.sleep_for(10.0).await;
+                println!("TASK AFTER");
+            })
+            .detach();
+
+        for i in 0..10 {
+            println!("TICK BEFORE: {i}");
+            assert_eq!(executor.num_tasks(), 1);
+            executor.tick_all(1.0);
+            println!("TICK AFTER: {i}");
+            assert_eq!(executor.num_tasks(), 1);
+        }
+        println!("TICK BEFORE: 10");
+        assert_eq!(executor.num_tasks(), 1);
+        executor.tick_all(1.0);
+        println!("TICK AFTER: 10");
+        assert_eq!(executor.num_tasks(), 0);
+
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 1);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
+
+        // Register 2nd timer reusing the same event
 
         executor
             .spawn_local((), async move {
