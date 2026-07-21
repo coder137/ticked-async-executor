@@ -22,9 +22,8 @@ fn main() -> Result<(), ()> {
         tracing::info!("{state:?}");
     });
 
-    let timer = executor.create_timer_from_timer_registration();
     for i in 0..10 {
-        let timer_clone = timer.clone();
+        let timer = executor.create_timer_from_timer_registration();
         let shutdown_clone = shutdown.clone();
         executor
             .spawn_local(
@@ -34,7 +33,7 @@ fn main() -> Result<(), ()> {
                     loop {
                         println!("COUNT: {}", counter);
                         counter += 1;
-                        timer_clone.sleep_for(160.0).await.unwrap_or_default();
+                        timer.sleep_for(160.0).await;
                         if shutdown_clone.load(std::sync::atomic::Ordering::Relaxed) {
                             println!("SHUTDOWN: {i}");
                             break;
