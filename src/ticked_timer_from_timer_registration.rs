@@ -3,28 +3,35 @@ use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 #[derive(Default)]
 pub struct TimerSystem {
     events: RefCell<VecDeque<Rc<futures_intrusive::sync::LocalManualResetEvent>>>,
-    timers: RefCell<Vec<(f64, Rc<futures_intrusive::sync::LocalManualResetEvent>)>>,
+    timers: RefCell<
+        slotmap::SlotMap<
+            slotmap::DefaultKey,
+            (f64, Rc<futures_intrusive::sync::LocalManualResetEvent>),
+        >,
+    >,
 }
 
 impl TimerSystem {
     pub fn resolve_timers(&self, delta: f64) {
-        self.timers
-            .borrow_mut()
-            .extract_if(.., |(elapsed, _)| {
-                *elapsed -= delta;
-                *elapsed <= 0.0
-            })
-            .for_each(|(_, event)| {
+        self.timers.borrow_mut().retain(|_, (elapsed, event)| {
+            *elapsed -= delta;
+            if *elapsed <= 0.0 {
                 event.set();
-            });
+            }
+            *elapsed > 0.0
+        });
     }
 
-    fn register_timer(
+    fn add_timer(
         &self,
         duration: f64,
         event: Rc<futures_intrusive::sync::LocalManualResetEvent>,
-    ) {
-        self.timers.borrow_mut().push((duration, event.clone()));
+    ) -> slotmap::DefaultKey {
+        self.timers.borrow_mut().insert((duration, event))
+    }
+
+    fn remove_timer(&self, key: slotmap::DefaultKey) {
+        self.timers.borrow_mut().remove(key);
     }
 
     fn take_event(&self) -> Rc<futures_intrusive::sync::LocalManualResetEvent> {
@@ -53,10 +60,11 @@ impl TickedTimerFromTimerRegistration {
 
     pub async fn sleep_for(&self, duration: f64) {
         let event = self.timer_system.take_event();
-        self.timer_system.register_timer(duration, event.clone());
+        let timer_key = self.timer_system.add_timer(duration, event.clone());
 
         let timer_system = self.timer_system.clone();
         crate::DroppableFuture::new(event.clone().wait(), || {
+            timer_system.remove_timer(timer_key);
             timer_system.give_event(event);
         })
         .await;
@@ -72,6 +80,9 @@ mod tests {
         let mut executor = TickedAsyncExecutor::default();
 
         let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 0);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
+
         executor
             .spawn_local((), async move {
                 println!("TASK BEFORE");
@@ -92,6 +103,10 @@ mod tests {
         executor.tick_all(1.0);
         println!("TICK AFTER: 10");
         assert_eq!(executor.num_tasks(), 0);
+
+        let timer = executor.create_timer_from_timer_registration();
+        assert_eq!(timer.timer_system.events.borrow().len(), 1);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
     }
 
     #[test]
@@ -100,6 +115,7 @@ mod tests {
 
         let timer = executor.create_timer_from_timer_registration();
         assert_eq!(timer.timer_system.events.borrow().len(), 0);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
 
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -135,5 +151,6 @@ mod tests {
         // NOTE, check if we have 1 event in the resource pool
         let timer = executor.create_timer_from_timer_registration();
         assert_eq!(timer.timer_system.events.borrow().len(), 1);
+        assert_eq!(timer.timer_system.timers.borrow().len(), 0);
     }
 }
