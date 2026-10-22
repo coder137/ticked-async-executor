@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use ticked_async_executor::{TaskId, TaskObserver, TickedAsyncExecutor};
 
 async fn async_yield_now() {
