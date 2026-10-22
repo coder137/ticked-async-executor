@@ -28,7 +28,7 @@ use ticked_async_executor::*;
 
 const DELTA: f64 = 1000.0 / 60.0;
 
-let (spawner, mut ticker) = SplitTickedAsyncExecutor::default();
+let (spawner, mut ticker) = SplitTickedAsyncExecutor::with_noop_observer();
 
 spawner.spawn_local("MyIdentifier", async move {}).detach();
 
