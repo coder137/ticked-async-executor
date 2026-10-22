@@ -9,6 +9,8 @@ repository = "https://github.com/coder137/ticked-async-executor"
 categories = ["asynchronous", "concurrency", "game-development", "simulation"]
 readme = "README.md"
 
+exclude = [".github/*", "scripts/*"]
+
 [features]
 # Provides a tick event in the form of a `tokio::sync::watch::Receiver<f64>` as per the `delta` provided 
 # to the `TickedAsyncExecutorTicker::tick` API
