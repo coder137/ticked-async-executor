@@ -9,49 +9,36 @@ use std::{
     },
 };
 
-use crate::{DroppableFuture, TaskId, UserId};
-
-#[derive(Debug)]
-pub enum TaskState {
-    Spawn(TaskId),
-    Wake(TaskId),
-    TickStart(TaskId, f64),
-    TickEnd(TaskId),
-    Drop(TaskId),
-}
+use crate::{DroppableFuture, TaskId, TaskObserver, UserId};
 
 pub type Task<T> = async_task::Task<T>;
 type Payload = (TaskId, async_task::Runnable);
 
-pub trait Observer: Clone + Send + Sync + 'static {
-    fn call(&self, state: TaskState);
-}
-
-impl Observer for fn(TaskState) {
-    fn call(&self, state: TaskState) {
-        (self)(state);
-    }
-}
-
-impl Observer for Arc<dyn Fn(TaskState) + Send + Sync + 'static> {
-    fn call(&self, state: TaskState) {
-        (self)(state);
-    }
-}
-
 pub struct SplitTickedAsyncExecutor;
 
 impl SplitTickedAsyncExecutor {
-    pub fn default() -> (
-        TickedAsyncExecutorSpawner<fn(TaskState)>,
-        TickedAsyncExecutorTicker<fn(TaskState)>,
+    pub fn with_noop_observer() -> (
+        TickedAsyncExecutorSpawner<()>,
+        TickedAsyncExecutorTicker<()>,
     ) {
-        Self::new(|_state| {})
+        Self::create(())
     }
 
-    pub fn new<O>(observer: O) -> (TickedAsyncExecutorSpawner<O>, TickedAsyncExecutorTicker<O>)
+    pub fn with_observer<O>(
+        observer: O,
+    ) -> (
+        TickedAsyncExecutorSpawner<Arc<O>>,
+        TickedAsyncExecutorTicker<Arc<O>>,
+    )
     where
-        O: Observer,
+        O: TaskObserver,
+    {
+        Self::create(Arc::new(observer))
+    }
+
+    fn create<O>(observer: O) -> (TickedAsyncExecutorSpawner<O>, TickedAsyncExecutorTicker<O>)
+    where
+        O: Clone,
     {
         let (task_tx, task_rx) = flume::unbounded();
         let num_spawned_tasks = Arc::new(AtomicUsize::new(0));
@@ -137,7 +124,7 @@ where
 
 impl<O> TickedAsyncExecutorSpawner<O>
 where
-    O: Observer,
+    O: TaskObserver + Clone + Send + Sync + 'static,
 {
     pub fn delta(&self) -> TickedAsyncExecutorDelta {
         TickedAsyncExecutorDelta(self.delta.clone())
@@ -194,13 +181,13 @@ where
 
         // Spawn Task
         self.num_spawned_tasks.fetch_add(1, Ordering::Relaxed);
-        observer.call(TaskState::Spawn(task_id.clone()));
+        observer.on_spawn(&task_id);
 
         // Droppable Future registering on_drop callback
         let num_spawned_tasks = self.num_spawned_tasks.clone();
         DroppableFuture::new(future, move || {
             num_spawned_tasks.fetch_sub(1, Ordering::Relaxed);
-            observer.call(TaskState::Drop(task_id));
+            observer.on_drop(&task_id);
         })
     }
 
@@ -209,7 +196,7 @@ where
         let observer = self.observer.clone();
         move |runnable| {
             task_tx.send((task_id.clone(), runnable)).unwrap_or(());
-            observer.call(TaskState::Wake(task_id.clone()));
+            observer.on_wake(&task_id);
         }
     }
 }
@@ -231,7 +218,7 @@ pub struct TickedAsyncExecutorTicker<O> {
 
 impl<O> TickedAsyncExecutorTicker<O>
 where
-    O: Observer,
+    O: TaskObserver,
 {
     pub fn num_tasks(&self) -> usize {
         self.num_spawned_tasks.load(Ordering::Relaxed)
@@ -263,10 +250,9 @@ where
 
             debug_assert!(!self.ticked_task_ids.contains(&identifier.task_id));
             self.ticked_task_ids.insert(identifier.task_id);
-            self.observer
-                .call(TaskState::TickStart(identifier.clone(), delta));
+            self.observer.on_tick_start(&identifier, delta);
             runnable.run();
-            self.observer.call(TaskState::TickEnd(identifier));
+            self.observer.on_tick_end(&identifier);
             if !check_cb() {
                 break;
             }
@@ -285,10 +271,9 @@ where
                         self.pending_tasks.push_back((identifier, runnable));
                     } else {
                         self.ticked_task_ids.insert(identifier.task_id);
-                        self.observer
-                            .call(TaskState::TickStart(identifier.clone(), delta));
+                        self.observer.on_tick_start(&identifier, delta);
                         runnable.run();
-                        self.observer.call(TaskState::TickEnd(identifier));
+                        self.observer.on_tick_end(&identifier);
                         do_not_tick = !check_cb();
                     }
                 }
@@ -308,35 +293,19 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::DefaultTestObserver;
+
     use super::*;
 
     #[test]
     fn test_split_ticked_async_executor_spawner_clone() {
-        let (spawner, _ticker) = SplitTickedAsyncExecutor::default();
+        let (spawner, _ticker) = SplitTickedAsyncExecutor::with_noop_observer();
         let _spawner_clone = spawner.clone();
     }
 
     #[test]
     fn test_split_ticked_async_executor_spawner_fn() {
-        let observer: fn(TaskState) = |state| {
-            println!("State: {state:?}");
-        };
-        let (spawner, mut ticker) = SplitTickedAsyncExecutor::new(observer);
-
-        spawner.spawn_local((), async move {}).detach();
-        spawner.spawn_local((), async move {}).detach();
-
-        ticker.tick_all(1.0);
-        assert_eq!(spawner.num_tasks(), 0);
-    }
-
-    #[test]
-    fn test_split_ticked_async_executor_spawner_arc_fntrait() {
-        let observer: std::sync::Arc<dyn Fn(TaskState) + Send + Sync + 'static> =
-            std::sync::Arc::new(|state: TaskState| {
-                println!("State: {state:?}");
-            });
-        let (spawner, mut ticker) = SplitTickedAsyncExecutor::new(observer);
+        let (spawner, mut ticker) = SplitTickedAsyncExecutor::with_observer(DefaultTestObserver);
 
         spawner.spawn_local((), async move {}).detach();
         spawner.spawn_local((), async move {}).detach();
