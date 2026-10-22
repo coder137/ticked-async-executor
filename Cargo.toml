@@ -1,6 +1,6 @@
 [package]
 name = "ticked_async_executor"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["coder137"]
 edition = "2024"
 description = "Local executor that runs woken async tasks when it is ticked"
@@ -8,6 +8,8 @@ license = "Apache-2.0"
 repository = "https://github.com/coder137/ticked-async-executor"
 categories = ["asynchronous", "concurrency", "game-development", "simulation"]
 readme = "README.md"
+
+exclude = [".github/*", "scripts/*"]
 
 [features]
 # Provides a tick event in the form of a `tokio::sync::watch::Receiver<f64>` as per the `delta` provided 

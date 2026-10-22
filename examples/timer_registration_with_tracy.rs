@@ -1,4 +1,4 @@
-use ticked_async_executor::{TaskState, TickedAsyncExecutor};
+use ticked_async_executor::{TaskId, TaskObserver, TickedAsyncExecutor};
 use tracing::Instrument;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_tracy::client::ProfiledAllocator;
@@ -18,9 +18,29 @@ fn main() -> Result<(), ()> {
     let tracy_layer = tracing_tracy::TracyLayer::default();
     tracing_subscriber::registry().with(tracy_layer).init();
 
-    let mut executor = TickedAsyncExecutor::<fn(TaskState)>::new(|state| {
-        tracing::info!("{state:?}");
-    });
+    struct DefaultObserver;
+    impl TaskObserver for DefaultObserver {
+        fn on_spawn(&self, id: &TaskId) {
+            tracing::info!("on_spawn: {:?}", id);
+        }
+
+        fn on_wake(&self, id: &TaskId) {
+            tracing::info!("on_wake: {:?}", id);
+        }
+
+        fn on_tick_start(&self, id: &TaskId, delta: f64) {
+            tracing::info!("on_tick_start: {:?} {}", id, delta);
+        }
+
+        fn on_tick_end(&self, id: &TaskId) {
+            tracing::info!("on_tick_end: {:?}", id);
+        }
+
+        fn on_drop(&self, id: &TaskId) {
+            tracing::info!("on_drop: {:?}", id);
+        }
+    }
+    let mut executor = TickedAsyncExecutor::new(DefaultObserver);
 
     for i in 0..10 {
         let timer = executor.create_timer_from_timer_registration();

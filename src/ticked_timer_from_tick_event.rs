@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_timer_tick_failure() {
-        let (spawner, ticker) = SplitTickedAsyncExecutor::default();
+        let (spawner, ticker) = SplitTickedAsyncExecutor::with_noop_observer();
 
         let timer = spawner.create_timer_from_tick_event();
         drop(ticker);

@@ -1,7 +1,7 @@
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 use crate::{
-    Observer, SplitTickedAsyncExecutor, Task, TaskState, TickedAsyncExecutorDelta,
+    SplitTickedAsyncExecutor, Task, TaskObserver, TickedAsyncExecutorDelta,
     TickedAsyncExecutorSpawner, TickedAsyncExecutorTicker, UserId,
 };
 
@@ -10,21 +10,27 @@ pub struct TickedAsyncExecutor<O> {
     ticker: TickedAsyncExecutorTicker<O>,
 }
 
-impl Default for TickedAsyncExecutor<fn(TaskState)> {
+impl Default for TickedAsyncExecutor<()> {
     fn default() -> Self {
-        Self::new(|_| {})
+        let (spawner, ticker) = SplitTickedAsyncExecutor::with_noop_observer();
+        Self { spawner, ticker }
+    }
+}
+
+impl<O> TickedAsyncExecutor<Arc<O>>
+where
+    O: TaskObserver + Send + Sync + 'static,
+{
+    pub fn new(observer: O) -> Self {
+        let (spawner, ticker) = SplitTickedAsyncExecutor::with_observer(observer);
+        Self { spawner, ticker }
     }
 }
 
 impl<O> TickedAsyncExecutor<O>
 where
-    O: Observer,
+    O: TaskObserver + Clone + Send + Sync + 'static,
 {
-    pub fn new(observer: O) -> Self {
-        let (spawner, ticker) = SplitTickedAsyncExecutor::new(observer);
-        Self { spawner, ticker }
-    }
-
     pub fn spawn_local<T>(
         &self,
         identifier: impl Into<UserId>,
@@ -103,6 +109,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::DefaultTestObserver;
+
     use super::*;
 
     const DELTA: f64 = 1000.0 / 60.0;
@@ -142,9 +150,7 @@ mod tests {
 
     #[test]
     fn test_task_cancellation() {
-        let mut executor = TickedAsyncExecutor::<fn(TaskState)>::new(|_state| {
-            println!("{_state:?}");
-        });
+        let mut executor = TickedAsyncExecutor::new(DefaultTestObserver);
         let task1 = executor.spawn_local("A", async move {
             loop {
                 tokio::task::yield_now().await;

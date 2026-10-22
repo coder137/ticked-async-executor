@@ -6,6 +6,9 @@ use droppable_future::*;
 mod task_identifier;
 pub use task_identifier::*;
 
+mod task_observer;
+pub use task_observer::*;
+
 mod split_ticked_async_executor;
 pub use split_ticked_async_executor::*;
 
