@@ -48,7 +48,7 @@ impl SplitTickedAsyncExecutor {
         let (tick_event_tx, tick_event_rx) = tokio::sync::watch::channel(1.0);
 
         #[cfg(feature = "timer_registration")]
-        let timer_system = Rc::new(crate::TimerSystem::default());
+        let timer_system = Rc::new(std::cell::RefCell::new(crate::TimerSystem::default()));
 
         let spawner = TickedAsyncExecutorSpawner {
             task_tx,
@@ -100,7 +100,7 @@ pub struct TickedAsyncExecutorSpawner<O> {
     #[cfg(feature = "tick_event")]
     tick_event_rx: tokio::sync::watch::Receiver<f64>,
     #[cfg(feature = "timer_registration")]
-    timer_system: Rc<crate::TimerSystem>,
+    timer_system: Rc<std::cell::RefCell<crate::TimerSystem>>,
 }
 
 impl<O> Clone for TickedAsyncExecutorSpawner<O>
@@ -213,7 +213,7 @@ pub struct TickedAsyncExecutorTicker<O> {
     tick_event_tx: tokio::sync::watch::Sender<f64>,
 
     #[cfg(feature = "timer_registration")]
-    timer_system: Rc<crate::TimerSystem>,
+    timer_system: Rc<std::cell::RefCell<crate::TimerSystem>>,
 }
 
 impl<O> TickedAsyncExecutorTicker<O>
@@ -235,7 +235,7 @@ where
         let _r = self.tick_event_tx.send(delta);
 
         #[cfg(feature = "timer_registration")]
-        self.timer_system.resolve_timers(delta);
+        self.timer_system.borrow_mut().resolve_timers(delta);
 
         self.ticked_task_ids.clear();
         // run previous tasks
