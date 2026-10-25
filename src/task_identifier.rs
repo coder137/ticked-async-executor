@@ -11,7 +11,7 @@ pub struct TaskId {
 pub enum UserId {
     None,
     Literal(&'static str),
-    Arc(Arc<String>),
+    Arc(Arc<str>),
 }
 
 impl From<()> for UserId {
@@ -28,12 +28,12 @@ impl From<&'static str> for UserId {
 
 impl From<String> for UserId {
     fn from(value: String) -> Self {
-        Self::Arc(Arc::new(value))
+        Self::Arc(value.into())
     }
 }
 
-impl From<Arc<String>> for UserId {
-    fn from(value: Arc<String>) -> Self {
+impl From<Arc<str>> for UserId {
+    fn from(value: Arc<str>) -> Self {
         Self::Arc(value.clone())
     }
 }
@@ -64,7 +64,7 @@ mod tests {
         let identifier = UserId::from(identifier);
         assert_eq!(identifier.to_string(), "Hello World");
 
-        let identifier = Arc::new("Hello World".to_owned());
+        let identifier = Arc::from("Hello World");
         let identifier = UserId::from(identifier);
         assert_eq!(identifier.to_string(), "Hello World");
     }
